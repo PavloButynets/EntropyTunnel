@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "EntropyTunnel": {
+      "commandName": "Project"
+    },
+    "Container (Dockerfile)": {
+      "commandName": "Docker"
+    }
+  }
+}

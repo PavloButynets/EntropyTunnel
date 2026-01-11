@@ -1,0 +1,37 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.13.35828.75 d17.13
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EntropyTunnel.Client", "EntropyTunnel\EntropyTunnel.Client.csproj", "{F90A7DDB-CE41-4800-9E76-F8B71628AD29}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EntropyTunnel.Core", "EntropyTunnel.Core\EntropyTunnel.Core.csproj", "{28E33FD7-82EF-4CDD-8F50-3EB620D46166}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EntropyTunnel.Server", "EntropyTunnel.Server\EntropyTunnel.Server.csproj", "{D9DB668B-6951-4844-BD03-D9C488DE2644}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{F90A7DDB-CE41-4800-9E76-F8B71628AD29}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F90A7DDB-CE41-4800-9E76-F8B71628AD29}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F90A7DDB-CE41-4800-9E76-F8B71628AD29}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F90A7DDB-CE41-4800-9E76-F8B71628AD29}.Release|Any CPU.Build.0 = Release|Any CPU
+		{28E33FD7-82EF-4CDD-8F50-3EB620D46166}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{28E33FD7-82EF-4CDD-8F50-3EB620D46166}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{28E33FD7-82EF-4CDD-8F50-3EB620D46166}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{28E33FD7-82EF-4CDD-8F50-3EB620D46166}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D9DB668B-6951-4844-BD03-D9C488DE2644}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D9DB668B-6951-4844-BD03-D9C488DE2644}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D9DB668B-6951-4844-BD03-D9C488DE2644}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D9DB668B-6951-4844-BD03-D9C488DE2644}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {6672B906-97F0-4888-B3E4-28834C310C96}
+	EndGlobalSection
+EndGlobal
