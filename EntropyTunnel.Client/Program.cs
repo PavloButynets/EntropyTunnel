@@ -7,7 +7,7 @@ Console.WriteLine("--- TUNNEL AGENT v6.1 (With Logs) ---");
 // УВАГА: Перевір порти! Зазвичай Server=5073, LocalApp=5174.
 // У твоєму коді вони були навпаки, я повернув стандартні, 
 // але якщо ти змінив порти у запуску - поправ тут.
-string serverUrl = "ws://localhost:5174/tunnel";
+string serverUrl = "ws://entropy-tunnel-server.onrender.com/tunnel";
 // Перевір адресу!
 string localBaseUrl = "http://localhost:5073";
 
