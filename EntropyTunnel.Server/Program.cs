@@ -8,7 +8,6 @@ var app = builder.Build();
 app.UseWebSockets();
 
 WebSocket? _agentSocket = null;
-// Зберігаємо не тільки дані, а й їх тип!
 var _pendingRequests = new ConcurrentDictionary<Guid, TaskCompletionSource<(byte[] Data, string ContentType, int StatusCode)>>();
 var _socketSendLock = new SemaphoreSlim(1, 1);
 
@@ -20,8 +19,7 @@ app.Map("/tunnel", async (HttpContext context) =>
     _agentSocket = ws;
     Console.WriteLine("[Server] ✅ AGENT CONNECTED!");
 
-    // Збільшуємо буфер для надійності
-    var buffer = new byte[1024 * 1024 * 10];
+    var buffer = new byte[1024 * 1024];
 
     try
     {
@@ -61,7 +59,6 @@ app.Map("/tunnel", async (HttpContext context) =>
 
                 if (_pendingRequests.TryRemove(id, out var tcs))
                 {
-                    // Передаємо все це очікуючому потоку
                     tcs.SetResult((content, contentType, statusCode));
                 }
             }
@@ -86,7 +83,6 @@ app.Map("{*path}", async (HttpContext context, string? path) =>
     var tcs = new TaskCompletionSource<(byte[] Data, string ContentType, int StatusCode)>();
     _pendingRequests.TryAdd(requestId, tcs);
 
-    // Команда агенту
     string targetPath = path ?? "";
     string command = $"{context.Request.Method} /{targetPath}{context.Request.QueryString}";
     byte[] commandBytes = Encoding.UTF8.GetBytes(command);
@@ -105,13 +101,11 @@ app.Map("{*path}", async (HttpContext context, string? path) =>
     {
         var result = await tcs.Task;
 
-        // ВАЖЛИВО: Якщо статус не 200 (наприклад 404), ми теж це повертаємо чесно
         if (result.StatusCode != 200)
         {
             context.Response.StatusCode = result.StatusCode;
         }
 
-        // 🔥 КЛЮЧОВИЙ МОМЕНТ: Ми віддаємо ТОЙ САМИЙ Content-Type, який прийшов від Vite
         return Results.Bytes(result.Data, contentType: result.ContentType);
     }
     else

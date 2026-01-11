@@ -2,14 +2,10 @@
 using System.Net.WebSockets;
 using System.Text;
 
-Console.WriteLine("--- TUNNEL AGENT v6.1 (With Logs) ---");
+Console.WriteLine("--- TUNNEL AGENT v6.2 (Cloud + Heartbeat) ---");
 
-// УВАГА: Перевір порти! Зазвичай Server=5073, LocalApp=5174.
-// У твоєму коді вони були навпаки, я повернув стандартні, 
-// але якщо ти змінив порти у запуску - поправ тут.
-string serverUrl = "ws://entropy-tunnel-server.onrender.com/tunnel";
-// Перевір адресу!
-string localBaseUrl = "http://localhost:5073";
+string serverUrl = "wss://entropy-tunnel-server.onrender.com/tunnel";
+string localBaseUrl = "http://localhost:5174";
 
 var config = new ChaosConfig { LatencyMs = 20, JitterMs = 5, PacketLossRate = 0.0 };
 
@@ -31,13 +27,33 @@ while (true)
 async Task RunAgent()
 {
     using var ws = new ClientWebSocket();
+    ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(15);
+
     await ws.ConnectAsync(new Uri(serverUrl), CancellationToken.None);
+
     Console.ForegroundColor = ConsoleColor.Green;
     Console.WriteLine($"Connected to Relay ({serverUrl})! ✅");
     Console.ResetColor();
 
     var buffer = new byte[1024 * 64];
     var sendLock = new SemaphoreSlim(1, 1);
+
+    _ = Task.Run(async () =>
+    {
+        var pingPacket = new byte[] { 0x00 };
+        while (ws.State == WebSocketState.Open)
+        {
+            await Task.Delay(5000);
+            await sendLock.WaitAsync();
+            try
+            {
+                if (ws.State == WebSocketState.Open)
+                    await ws.SendAsync(new ArraySegment<byte>(pingPacket), WebSocketMessageType.Binary, true, CancellationToken.None);
+            }
+            catch { /* Ігноруємо помилки пінга */ }
+            finally { sendLock.Release(); }
+        }
+    });
 
     while (ws.State == WebSocketState.Open)
     {
@@ -60,20 +76,16 @@ async Task RunAgent()
                 string path = parts[1];
                 string targetUrl = $"{localBaseUrl}{path}";
 
-                // ЛОГ ЗАПИТУ
                 Console.WriteLine($"[📥 IN] {method} {path}");
 
                 if (config.LatencyMs > 0) await Task.Delay(config.LatencyMs);
 
-                // Робмо запит
                 var response = await httpClient.GetAsync(targetUrl);
                 byte[] data = await response.Content.ReadAsByteArrayAsync();
                 int statusCode = (int)response.StatusCode;
 
-                // ДІСТАЄМО СПРАВЖНІЙ ТИП
                 string contentType = response.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
 
-                // ЛОГ ВІДПОВІДІ
                 var color = statusCode == 200 ? ConsoleColor.Gray : ConsoleColor.Yellow;
                 if (statusCode >= 400) color = ConsoleColor.Red;
 
@@ -85,7 +97,6 @@ async Task RunAgent()
                 byte[] typeLenBytes = BitConverter.GetBytes(typeBytes.Length);
                 byte[] statusBytes = BitConverter.GetBytes(statusCode);
 
-                // ПАКУЄМО
                 var responsePacket = new byte[16 + 4 + 4 + typeBytes.Length + data.Length];
 
                 int offset = 0;
