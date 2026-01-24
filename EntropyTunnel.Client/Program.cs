@@ -4,7 +4,7 @@ using System.Text;
 
 Console.WriteLine("--- TUNNEL AGENT v6.2 (Cloud + Heartbeat) ---");
 
-string serverUrl = "wss://entropy-tunnel-server.onrender.com/tunnel";
+string serverUrl = "ws://13.60.182.126:8080/tunnel";
 string localBaseUrl = "http://localhost:5174";
 
 var config = new ChaosConfig { LatencyMs = 20, JitterMs = 5, PacketLossRate = 0.0 };
