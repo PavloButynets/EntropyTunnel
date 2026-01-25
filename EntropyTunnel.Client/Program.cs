@@ -2,15 +2,40 @@
 using System.Net.WebSockets;
 using System.Text;
 
-Console.WriteLine("--- TUNNEL AGENT v6.2 (Cloud + Heartbeat) ---");
+// --- Parse Port and ClientID from arguments ---
+if (args.Length < 2 || !int.TryParse(args[0], out int localPort))
+{
+    Console.ForegroundColor = ConsoleColor.Yellow;
+    Console.WriteLine("⚠️  Usage: EntropyTunnel.Client <port> <client-id>");
+    Console.WriteLine("   Example: dotnet run -- 5173 app1");
+    Console.ResetColor();
+    return;
+}
 
-string serverUrl = "ws://13.60.182.126:8080/tunnel";
-string localBaseUrl = "http://localhost:5174";
+string clientId = args[1];
+// ----------------------------------
+
+Console.WriteLine($"--- TUNNEL AGENT v7.0 (Port: {localPort}, ID: {clientId}) ---");
+
+// Added clientId to the query string
+string serverUrl = $"ws://13.60.182.126:8080/tunnel?clientId={clientId}";
+string localBaseUrl = $"http://localhost:{localPort}";
 
 var config = new ChaosConfig { LatencyMs = 20, JitterMs = 5, PacketLossRate = 0.0 };
 
 using var httpClient = new HttpClient();
 httpClient.Timeout = TimeSpan.FromSeconds(30);
+
+try
+{
+    await httpClient.GetAsync(localBaseUrl);
+}
+catch
+{
+    Console.ForegroundColor = ConsoleColor.Yellow;
+    Console.WriteLine($"[Warning] Local service at {localBaseUrl} seems down. Is it running?");
+    Console.ResetColor();
+}
 
 while (true)
 {
@@ -29,15 +54,20 @@ async Task RunAgent()
     using var ws = new ClientWebSocket();
     ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(15);
 
+    Console.WriteLine($"Connecting to {serverUrl}...");
     await ws.ConnectAsync(new Uri(serverUrl), CancellationToken.None);
 
     Console.ForegroundColor = ConsoleColor.Green;
-    Console.WriteLine($"Connected to Relay ({serverUrl})! ✅");
+    Console.WriteLine($"✅ Tunnel established!");
+    // Display the correct public URL with the client ID
+    Console.WriteLine($"🌍 Public URL: http://13.60.182.126:8080/{clientId}/");
+    Console.WriteLine($"👉 Local:      {localBaseUrl}");
     Console.ResetColor();
 
     var buffer = new byte[1024 * 64];
     var sendLock = new SemaphoreSlim(1, 1);
 
+    // Heartbeat (Ping)
     _ = Task.Run(async () =>
     {
         var pingPacket = new byte[] { 0x00 };
@@ -50,11 +80,12 @@ async Task RunAgent()
                 if (ws.State == WebSocketState.Open)
                     await ws.SendAsync(new ArraySegment<byte>(pingPacket), WebSocketMessageType.Binary, true, CancellationToken.None);
             }
-            catch { /* Ігноруємо помилки пінга */ }
+            catch { /* Ignore */ }
             finally { sendLock.Release(); }
         }
     });
 
+    // Main Loop
     while (ws.State == WebSocketState.Open)
     {
         var result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
@@ -72,6 +103,9 @@ async Task RunAgent()
 
                 string command = Encoding.UTF8.GetString(packet, 16, packet.Length - 16);
                 var parts = command.Split(' ', 2);
+
+                if (parts.Length < 2) return;
+
                 string method = parts[0];
                 string path = parts[1];
                 string targetUrl = $"{localBaseUrl}{path}";
@@ -80,11 +114,25 @@ async Task RunAgent()
 
                 if (config.LatencyMs > 0) await Task.Delay(config.LatencyMs);
 
-                var response = await httpClient.GetAsync(targetUrl);
-                byte[] data = await response.Content.ReadAsByteArrayAsync();
-                int statusCode = (int)response.StatusCode;
+                HttpResponseMessage response;
+                byte[] data;
+                int statusCode;
+                string contentType;
 
-                string contentType = response.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
+                try
+                {
+                    response = await httpClient.GetAsync(targetUrl);
+                    data = await response.Content.ReadAsByteArrayAsync();
+                    statusCode = (int)response.StatusCode;
+                    contentType = response.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
+                }
+                catch (HttpRequestException)
+                {
+                    // Local server error handling
+                    statusCode = 502; // Bad Gateway
+                    data = Encoding.UTF8.GetBytes("Local server error");
+                    contentType = "text/plain";
+                }
 
                 var color = statusCode == 200 ? ConsoleColor.Gray : ConsoleColor.Yellow;
                 if (statusCode >= 400) color = ConsoleColor.Red;
@@ -97,6 +145,7 @@ async Task RunAgent()
                 byte[] typeLenBytes = BitConverter.GetBytes(typeBytes.Length);
                 byte[] statusBytes = BitConverter.GetBytes(statusCode);
 
+                // Protocol v2: [ID 16] [Status 4] [TypeLen 4] [Type N] [Body M]
                 var responsePacket = new byte[16 + 4 + 4 + typeBytes.Length + data.Length];
 
                 int offset = 0;
