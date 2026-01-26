@@ -60,8 +60,8 @@ async Task RunAgent()
     Console.ForegroundColor = ConsoleColor.Green;
     Console.WriteLine($"✅ Tunnel established!");
     // Display the correct public URL with the client ID
-    Console.WriteLine($"🌍 Public URL: http://13.60.182.126:8080/{clientId}/");
-    Console.WriteLine($"👉 Local:      {localBaseUrl}");
+    Console.WriteLine($"🌍 Public URL: http://{clientId}.13.60.182.126.nip.io:8080/");
+    //  Console.WriteLine($"👉 Local:      {localBaseUrl}");
     Console.ResetColor();
 
     var buffer = new byte[1024 * 64];
