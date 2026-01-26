@@ -21,8 +21,7 @@ Console.WriteLine($"--- TUNNEL AGENT v7.0 (Port: {localPort}, ID: {clientId}) --
 string serverUrl = $"ws://13.60.182.126:8080/tunnel?clientId={clientId}";
 string localBaseUrl = $"http://localhost:{localPort}";
 
-var config = new ChaosConfig { LatencyMs = 20, JitterMs = 5, PacketLossRate = 0.0 };
-
+var config = new ChaosConfig { LatencyMs = 0, JitterMs = 0, PacketLossRate = 0.0 };
 using var httpClient = new HttpClient();
 httpClient.Timeout = TimeSpan.FromSeconds(30);
 

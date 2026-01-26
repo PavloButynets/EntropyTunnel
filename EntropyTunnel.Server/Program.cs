@@ -25,7 +25,7 @@ app.Map("/tunnel", async (HttpContext context) =>
     _agentLocks.TryAdd(clientId, new SemaphoreSlim(1, 1));
     Console.WriteLine($"[Server] ✅ AGENT CONNECTED: {clientId}");
 
-    var receiveBuffer = new byte[1024 * 4];
+    var receiveBuffer = new byte[1024 * 64];
 
     try
     {
