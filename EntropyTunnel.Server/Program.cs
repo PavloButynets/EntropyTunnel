@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
+using System.Threading.Channels; // Обов'язково для стрімінгу
 
 var builder = WebApplication.CreateBuilder(args);
 var app = builder.Build();
@@ -8,8 +9,12 @@ var app = builder.Build();
 app.UseWebSockets();
 
 var _connectedAgents = new ConcurrentDictionary<string, WebSocket>();
-var _pendingRequests = new ConcurrentDictionary<Guid, TaskCompletionSource<(byte[] Data, string ContentType, int StatusCode)>>();
 var _agentLocks = new ConcurrentDictionary<string, SemaphoreSlim>();
+
+// Store requests while waiting fot the Header (0x01)
+var _pendingRequests = new ConcurrentDictionary<Guid, TaskCompletionSource<(string ContentType, int StatusCode, ChannelReader<byte[]> BodyReader)>>();
+// Store channels for active streams (0x02)
+var _activeChannels = new ConcurrentDictionary<Guid, Channel<byte[]>>();
 
 // --- WebSocket Endpoint ---
 app.Map("/tunnel", async (HttpContext context) =>
@@ -43,36 +48,43 @@ app.Map("/tunnel", async (HttpContext context) =>
 
             if (result.MessageType == WebSocketMessageType.Close) break;
 
-            var fullPacket = ms.ToArray();
+            var packet = ms.ToArray();
 
-            if (fullPacket.Length > 24)
+            // Ignore empty packets or keep-alive signals (0x00)
+            if (packet.Length < 17 && packet[0] == 0x00) continue;
+
+            var idBytes = new byte[16];
+            Array.Copy(packet, 0, idBytes, 0, 16);
+            var id = new Guid(idBytes);
+
+            byte packetType = packet[16];
+
+            if (packetType == 0x01) // Header
             {
-                try
+                int statusCode = BitConverter.ToInt32(packet, 17);
+                int typeLen = BitConverter.ToInt32(packet, 21);
+                string contentType = Encoding.UTF8.GetString(packet, 25, typeLen);
+
+                var channel = Channel.CreateUnbounded<byte[]>();
+                _activeChannels[id] = channel;
+
+                if (_pendingRequests.TryRemove(id, out var tcs))
+                    tcs.SetResult((contentType, statusCode, channel.Reader));
+            }
+            else if (packetType == 0x02) // Data Chunk
+            {
+                if (_activeChannels.TryGetValue(id, out var channel))
                 {
-                    int offset = 0;
-                    var idBytes = new byte[16];
-                    Array.Copy(fullPacket, offset, idBytes, 0, 16);
-                    var id = new Guid(idBytes);
-                    offset += 16;
-
-                    int statusCode = BitConverter.ToInt32(fullPacket, offset); offset += 4;
-                    int typeLen = BitConverter.ToInt32(fullPacket, offset); offset += 4;
-
-                    if (offset + typeLen > fullPacket.Length) throw new Exception("Packet truncated (TypeLen)");
-                    string contentType = Encoding.UTF8.GetString(fullPacket, offset, typeLen); offset += typeLen;
-
-                    int dataSize = fullPacket.Length - offset;
-                    if (dataSize < 0) throw new Exception("Packet truncated (Body)");
-
-                    var content = new byte[dataSize];
-                    Array.Copy(fullPacket, offset, content, 0, dataSize);
-
-                    if (_pendingRequests.TryRemove(id, out var tcs))
-                        tcs.SetResult((content, contentType, statusCode));
+                    var dataChunk = new byte[packet.Length - 17];
+                    Array.Copy(packet, 17, dataChunk, 0, dataChunk.Length);
+                    await channel.Writer.WriteAsync(dataChunk);
                 }
-                catch (Exception ex)
+            }
+            else if (packetType == 0x03) // End of Stream
+            {
+                if (_activeChannels.TryRemove(id, out var channel))
                 {
-                    Console.WriteLine($"[Parse Error] {ex.Message}");
+                    channel.Writer.Complete();
                 }
             }
         }
@@ -95,7 +107,7 @@ app.Map("{*path}", async (HttpContext context, string? path) =>
 
     if (char.IsDigit(clientId[0]) || clientId == "localhost")
     {
-        return Results.Ok($"Entropy Tunnel v7.1. Usage: http://<client-id>.{context.Request.Host.Value}/");
+        return Results.Ok($"Entropy Tunnel v0.8 MULTIPLEXED. Usage: http://<client-id>.{context.Request.Host.Value}/");
     }
 
     if (!_connectedAgents.TryGetValue(clientId, out var agentSocket) || agentSocket.State != WebSocketState.Open)
@@ -104,7 +116,7 @@ app.Map("{*path}", async (HttpContext context, string? path) =>
     }
 
     var requestId = Guid.NewGuid();
-    var tcs = new TaskCompletionSource<(byte[] Data, string ContentType, int StatusCode)>();
+    var tcs = new TaskCompletionSource<(string ContentType, int StatusCode, ChannelReader<byte[]> BodyReader)>();
     _pendingRequests.TryAdd(requestId, tcs);
 
     string targetPath = path ?? "";
@@ -122,17 +134,27 @@ app.Map("{*path}", async (HttpContext context, string? path) =>
         finally { lockSlim.Release(); }
     }
 
+    // Wait for the first pachet(Header) (Заголовок 0x01)
     var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(30000));
 
     if (completedTask == tcs.Task)
     {
         var result = await tcs.Task;
-        if (result.StatusCode != 200) context.Response.StatusCode = result.StatusCode;
-        return Results.Bytes(result.Data, contentType: result.ContentType);
+        context.Response.StatusCode = result.StatusCode;
+        context.Response.ContentType = result.ContentType;
+
+        await foreach (var chunk in result.BodyReader.ReadAllAsync())
+        {
+            await context.Response.Body.WriteAsync(chunk);
+            await context.Response.Body.FlushAsync();
+        }
+
+        return Results.Empty;
     }
     else
     {
         _pendingRequests.TryRemove(requestId, out _);
+        _activeChannels.TryRemove(requestId, out _); // Очистка при таймауті
         return Results.StatusCode(504);
     }
 });

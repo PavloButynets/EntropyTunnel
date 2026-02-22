@@ -2,7 +2,18 @@
 using System.Net.WebSockets;
 using System.Text;
 
-// --- Parse Port and ClientID from arguments ---
+var builder = new ConfigurationBuilder()
+    .SetBasePath(AppContext.BaseDirectory)
+    .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
+
+IConfiguration config = builder.Build();
+
+string serverBaseUrl = config["TunnelSettings:ServerUrl"] ?? "ws://localhost:8080/tunnel";
+string publicDomainBase = config["TunnelSettings:PublicDomain"] ?? "localhost:8080";
+
+var chaosConfig = new ChaosConfig();
+config.GetSection("ChaosSettings").Bind(chaosConfig);
+
 if (args.Length < 2 || !int.TryParse(args[0], out int localPort))
 {
     Console.ForegroundColor = ConsoleColor.Yellow;
@@ -13,15 +24,13 @@ if (args.Length < 2 || !int.TryParse(args[0], out int localPort))
 }
 
 string clientId = args[1];
-// ----------------------------------
 
-Console.WriteLine($"--- TUNNEL AGENT v7.0 (Port: {localPort}, ID: {clientId}) ---");
+Console.WriteLine($"--- TUNNEL AGENT v0.8 MULTIPLEXED (Port: {localPort}, ID: {clientId}) ---");
+Console.WriteLine($"--- Config loaded: Server -> {serverBaseUrl} ---");
 
-// Added clientId to the query string
-string serverUrl = $"ws://13.60.182.126:8080/tunnel?clientId={clientId}";
+string serverUrl = $"{serverBaseUrl}?clientId={clientId}";
 string localBaseUrl = $"http://localhost:{localPort}";
 
-var config = new ChaosConfig { LatencyMs = 0, JitterMs = 0, PacketLossRate = 0.0 };
 using var httpClient = new HttpClient();
 httpClient.Timeout = TimeSpan.FromSeconds(30);
 
@@ -58,9 +67,7 @@ async Task RunAgent()
 
     Console.ForegroundColor = ConsoleColor.Green;
     Console.WriteLine($"✅ Tunnel established!");
-    // Display the correct public URL with the client ID
-    Console.WriteLine($"🌍 Public URL: http://{clientId}.13.60.182.126.nip.io:8080/");
-    //  Console.WriteLine($"👉 Local:      {localBaseUrl}");
+    Console.WriteLine($"🌍 Public URL: http://{clientId}.{publicDomainBase}/");
     Console.ResetColor();
 
     var buffer = new byte[1024 * 64];
@@ -95,6 +102,7 @@ async Task RunAgent()
 
         _ = Task.Run(async () =>
         {
+            Stream? bodyStream = null;
             try
             {
                 var idBytes = new byte[16];
@@ -111,55 +119,78 @@ async Task RunAgent()
 
                 Console.WriteLine($"[📥 IN] {method} {path}");
 
-                if (config.LatencyMs > 0) await Task.Delay(config.LatencyMs);
+                if (chaosConfig.LatencyMs > 0) await Task.Delay(chaosConfig.LatencyMs);
 
                 HttpResponseMessage response;
-                byte[] data;
                 int statusCode;
                 string contentType;
 
                 try
                 {
-                    response = await httpClient.GetAsync(targetUrl);
-                    data = await response.Content.ReadAsByteArrayAsync();
+                    response = await httpClient.GetAsync(targetUrl, HttpCompletionOption.ResponseHeadersRead);
                     statusCode = (int)response.StatusCode;
                     contentType = response.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
+                    bodyStream = await response.Content.ReadAsStreamAsync();
                 }
                 catch (HttpRequestException)
                 {
-                    // Local server error handling
-                    statusCode = 502; // Bad Gateway
-                    data = Encoding.UTF8.GetBytes("Local server error");
+                    statusCode = 502;
                     contentType = "text/plain";
+                    bodyStream = new MemoryStream(Encoding.UTF8.GetBytes("Local server error"));
                 }
 
                 var color = statusCode == 200 ? ConsoleColor.Gray : ConsoleColor.Yellow;
                 if (statusCode >= 400) color = ConsoleColor.Red;
 
                 Console.ForegroundColor = color;
-                Console.WriteLine($"   [📤 OUT] {statusCode} {contentType} ({data.Length} bytes)");
+                Console.WriteLine($"   [📤 OUT] {statusCode} {contentType} (Multiplexing...)");
                 Console.ResetColor();
 
                 byte[] typeBytes = Encoding.UTF8.GetBytes(contentType);
                 byte[] typeLenBytes = BitConverter.GetBytes(typeBytes.Length);
                 byte[] statusBytes = BitConverter.GetBytes(statusCode);
 
-                // Protocol v2: [ID 16] [Status 4] [TypeLen 4] [Type N] [Body M]
-                var responsePacket = new byte[16 + 4 + 4 + typeBytes.Length + data.Length];
-
-                int offset = 0;
-                Array.Copy(idBytes, 0, responsePacket, offset, 16); offset += 16;
-                Array.Copy(statusBytes, 0, responsePacket, offset, 4); offset += 4;
-                Array.Copy(typeLenBytes, 0, responsePacket, offset, 4); offset += 4;
-                Array.Copy(typeBytes, 0, responsePacket, offset, typeBytes.Length); offset += typeBytes.Length;
-                Array.Copy(data, 0, responsePacket, offset, data.Length);
+                // --- 1. HEADER PACKET (Type = 0x01) ---
+                var headerPacket = new byte[16 + 1 + 4 + 4 + typeBytes.Length];
+                Array.Copy(idBytes, 0, headerPacket, 0, 16);
+                headerPacket[16] = 0x01; // <--- Type: Header
+                Array.Copy(statusBytes, 0, headerPacket, 17, 4);
+                Array.Copy(typeLenBytes, 0, headerPacket, 21, 4);
+                Array.Copy(typeBytes, 0, headerPacket, 25, typeBytes.Length);
 
                 await sendLock.WaitAsync();
+                try { if (ws.State == WebSocketState.Open) await ws.SendAsync(new ArraySegment<byte>(headerPacket), WebSocketMessageType.Binary, true, CancellationToken.None); }
+                finally { sendLock.Release(); }
+
+                // --- 2. DATA PACKET (Type = 0x02) ---
+                var localBuffer = System.Buffers.ArrayPool<byte>.Shared.Rent(1024 * 16); // 16 KB буфер
                 try
                 {
-                    if (ws.State == WebSocketState.Open)
-                        await ws.SendAsync(new ArraySegment<byte>(responsePacket), WebSocketMessageType.Binary, true, CancellationToken.None);
+                    int bytesRead;
+                    while ((bytesRead = await bodyStream.ReadAsync(localBuffer)) > 0)
+                    {
+                        var chunkPacket = new byte[16 + 1 + bytesRead];
+                        Array.Copy(idBytes, 0, chunkPacket, 0, 16);
+                        chunkPacket[16] = 0x02; // <--- Type: Chunk
+                        Array.Copy(localBuffer, 0, chunkPacket, 17, bytesRead);
+
+                        await sendLock.WaitAsync(); // Block only for a moment while send the chunk
+                        try { if (ws.State == WebSocketState.Open) await ws.SendAsync(new ArraySegment<byte>(chunkPacket), WebSocketMessageType.Binary, true, CancellationToken.None); }
+                        finally { sendLock.Release(); }
+                    }
                 }
+                finally
+                {
+                    System.Buffers.ArrayPool<byte>.Shared.Return(localBuffer);
+                }
+
+                // --- 3. EOF PACKET (Type = 0x03) ---
+                var eofPacket = new byte[17];
+                Array.Copy(idBytes, 0, eofPacket, 0, 16);
+                eofPacket[16] = 0x03; // <--- Type: EOF
+
+                await sendLock.WaitAsync();
+                try { if (ws.State == WebSocketState.Open) await ws.SendAsync(new ArraySegment<byte>(eofPacket), WebSocketMessageType.Binary, true, CancellationToken.None); }
                 finally { sendLock.Release(); }
             }
             catch (Exception ex)
@@ -167,6 +198,10 @@ async Task RunAgent()
                 Console.ForegroundColor = ConsoleColor.Red;
                 Console.WriteLine($"[Err] {ex.Message}");
                 Console.ResetColor();
+            }
+            finally
+            {
+                if (bodyStream != null) await bodyStream.DisposeAsync();
             }
         });
     }
