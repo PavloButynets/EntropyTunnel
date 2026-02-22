@@ -1,6 +1,7 @@
 ﻿using EntropyTunnel.Core;
 using System.Net.WebSockets;
 using System.Text;
+using Microsoft.Extensions.Configuration;
 
 var builder = new ConfigurationBuilder()
     .SetBasePath(AppContext.BaseDirectory)
