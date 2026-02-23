@@ -1,209 +1,328 @@
-﻿using EntropyTunnel.Core;
-using System.Net.WebSockets;
+using System.Diagnostics;
+using System.Net.Sockets;
 using System.Text;
-using Microsoft.Extensions.Configuration;
+using EntropyTunnel.Client.Configuration;
+using EntropyTunnel.Client.Dashboard;
+using EntropyTunnel.Client.Models;
+using EntropyTunnel.Client.Multiplexer;
+using EntropyTunnel.Client.Pipeline;
+using EntropyTunnel.Client.Services;
+using EntropyTunnel.Client.Stages;
 
-var builder = new ConfigurationBuilder()
-    .SetBasePath(AppContext.BaseDirectory)
-    .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
+// Parse positional CLI args: <port> <client-id>
+int localPort = 0;
+string? clientId = null;
+string[] aspNetArgs = args;
 
-IConfiguration config = builder.Build();
-
-string serverBaseUrl = config["TunnelSettings:ServerUrl"] ?? "ws://localhost:8080/tunnel";
-string publicDomainBase = config["TunnelSettings:PublicDomain"] ?? "localhost:8080";
-
-var chaosConfig = new ChaosConfig();
-config.GetSection("ChaosSettings").Bind(chaosConfig);
-
-if (args.Length < 2 || !int.TryParse(args[0], out int localPort))
+if (args.Length >= 2 && int.TryParse(args[0], out int parsedPort))
+{
+    localPort = parsedPort;
+    clientId = args[1];
+    aspNetArgs = args[2..];
+}
+else if (args.Length != 0)
 {
     Console.ForegroundColor = ConsoleColor.Yellow;
-    Console.WriteLine("⚠️  Usage: EntropyTunnel.Client <port> <client-id>");
-    Console.WriteLine("   Example: dotnet run -- 5173 app1");
+    Console.WriteLine("Usage  : EntropyTunnel.Client <local-port> <client-id>");
+    Console.WriteLine("Example: dotnet run -- 5173 app1");
     Console.ResetColor();
     return;
 }
 
-string clientId = args[1];
+var preConfig = new ConfigurationBuilder()
+    .SetBasePath(AppContext.BaseDirectory)
+    .AddJsonFile("appsettings.json", optional: false)
+    .Build();
 
-Console.WriteLine($"--- TUNNEL AGENT v0.8 MULTIPLEXED (Port: {localPort}, ID: {clientId}) ---");
-Console.WriteLine($"--- Config loaded: Server -> {serverBaseUrl} ---");
 
-string serverUrl = $"{serverBaseUrl}?clientId={clientId}";
-string localBaseUrl = $"http://localhost:{localPort}";
+int startPort = preConfig.GetValue("TunnelSettings:DashboardPort", 4040);
+int dashboardPort = FindAvailablePort(startPort);
 
-using var httpClient = new HttpClient();
-httpClient.Timeout = TimeSpan.FromSeconds(30);
+// Determine role: first process to claim startPort is primary.
+bool isPrimary = dashboardPort == startPort;
+string myApiUrl = $"http://localhost:{dashboardPort}";
+string primaryApiUrl = $"http://localhost:{startPort}";
 
-try
-{
-    await httpClient.GetAsync(localBaseUrl);
-}
-catch
-{
-    Console.ForegroundColor = ConsoleColor.Yellow;
-    Console.WriteLine($"[Warning] Local service at {localBaseUrl} seems down. Is it running?");
-    Console.ResetColor();
-}
+var builder = WebApplication.CreateBuilder(aspNetArgs);
+builder.WebHost.UseUrls(myApiUrl);
 
-while (true)
-{
-    try { await RunAgent(); }
-    catch (Exception ex)
-    {
-        Console.ForegroundColor = ConsoleColor.Red;
-        Console.WriteLine($"Wait... {ex.Message}");
-        Console.ResetColor();
-        await Task.Delay(3000);
-    }
-}
+builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
+builder.Logging.AddFilter("Microsoft.AspNetCore.Routing", LogLevel.Warning);
+builder.Logging.AddFilter("Microsoft.AspNetCore.StaticFiles", LogLevel.Warning);
 
-async Task RunAgent()
-{
-    using var ws = new ClientWebSocket();
-    ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(15);
+var settings = builder.Configuration
+    .GetSection("TunnelSettings")
+    .Get<TunnelSettings>() ?? new TunnelSettings();
 
-    Console.WriteLine($"Connecting to {serverUrl}...");
-    await ws.ConnectAsync(new Uri(serverUrl), CancellationToken.None);
+if (localPort > 0) settings.LocalPort = localPort;
+if (clientId is not null) settings.ClientId = clientId;
+settings.DashboardPort = dashboardPort;
 
-    Console.ForegroundColor = ConsoleColor.Green;
-    Console.WriteLine($"✅ Tunnel established!");
-    Console.WriteLine($"🌍 Public URL: http://{clientId}.{publicDomainBase}/");
-    Console.ResetColor();
+builder.Services.AddSingleton(settings);
 
-    var buffer = new byte[1024 * 64];
-    var sendLock = new SemaphoreSlim(1, 1);
+var dashInfo = new DashboardInfo(dashboardPort, startPort, isPrimary, myApiUrl, primaryApiUrl);
+builder.Services.AddSingleton(dashInfo);
 
-    // Heartbeat (Ping)
-    _ = Task.Run(async () =>
-    {
-        var pingPacket = new byte[] { 0x00 };
-        while (ws.State == WebSocketState.Open)
+builder.Services.AddCors(opts =>
+    opts.AddDefaultPolicy(p => p
+        .SetIsOriginAllowed(o =>
         {
-            await Task.Delay(5000);
-            await sendLock.WaitAsync();
-            try
-            {
-                if (ws.State == WebSocketState.Open)
-                    await ws.SendAsync(new ArraySegment<byte>(pingPacket), WebSocketMessageType.Binary, true, CancellationToken.None);
-            }
-            catch { /* Ignore */ }
-            finally { sendLock.Release(); }
+            if (!Uri.TryCreate(o, UriKind.Absolute, out var uri)) return false;
+            return string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase);
+        })
+        .AllowAnyMethod()
+        .AllowAnyHeader()));
+
+builder.Services.AddSingleton<RuleStore>();
+builder.Services.AddSingleton<AgentRegistry>();
+builder.Services.AddSingleton<TunnelStatusService>();
+builder.Services.AddSingleton<TunnelMultiplexer>();
+
+builder.Services.AddSingleton<MockEngine>();
+builder.Services.AddSingleton<ChaosEngine>();
+builder.Services.AddSingleton<RequestRouter>();
+builder.Services.AddSingleton<LocalForwarder>();
+builder.Services.AddSingleton<RequestPipeline>();
+
+builder.Services.AddHttpClient("tunnel", c => c.Timeout = TimeSpan.FromSeconds(30));
+builder.Services.AddHttpClient("registration", c => c.Timeout = TimeSpan.FromSeconds(10));
+
+builder.Services.AddHostedService<TunnelService>();
+builder.Services.AddHostedService<AgentRegistrationService>();
+
+builder.Services.ConfigureHttpJsonOptions(opts =>
+    opts.SerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase);
+
+var app = builder.Build();
+
+// Primary hosts the React SPA; secondary skips static files (just an API server)
+if (isPrimary)
+{
+    app.UseDefaultFiles();
+    app.UseStaticFiles();
+}
+
+app.UseCors();
+
+var api = app.MapGroup("/api");
+
+api.MapGet("/ping", () => new { app = "EntropyTunnel.Dashboard", version = "1.0" });
+
+api.MapGet("/status", (TunnelStatusService svc) => svc.GetStatus());
+
+api.MapGet("/agents", (
+    AgentRegistry registry,
+    TunnelStatusService status,
+    TunnelSettings cfg,
+    DashboardInfo di) =>
+{
+    var self = new AgentInfo
+    {
+        ClientId = cfg.ClientId,
+        LocalPort = cfg.LocalPort,
+        ApiUrl = di.MyApiUrl,
+        IsPrimary = di.IsPrimary,
+        IsConnected = status.IsConnected,
+        PublicUrl = status.PublicUrl,
+        LastSeen = DateTimeOffset.UtcNow,
+    };
+
+    // Prune agents that haven't re-registered in 90 s
+    registry.PruneStale(TimeSpan.FromSeconds(90));
+
+    var all = new[] { self }.Concat(registry.GetAll()).ToList();
+    return Results.Ok(all);
+});
+
+api.MapPost("/agents/register", (AgentInfo agent, AgentRegistry registry) =>
+{
+    registry.Register(agent);
+    return Results.Ok();
+});
+
+api.MapDelete("/agents/{clientId}", (string clientId, AgentRegistry registry) =>
+    registry.Unregister(clientId) ? Results.NoContent() : Results.NotFound());
+
+api.MapGet("/rules/chaos", (RuleStore store) =>
+    Results.Ok(store.GetChaosRules()));
+
+api.MapPost("/rules/chaos", (ChaosRule rule, RuleStore store) =>
+{
+    rule = rule with { Id = Guid.NewGuid() };
+    store.AddChaosRule(rule);
+    return Results.Created($"/api/rules/chaos/{rule.Id}", rule);
+});
+
+api.MapPut("/rules/chaos/{id:guid}", (Guid id, ChaosRule rule, RuleStore store) =>
+{
+    rule = rule with { Id = id };
+    return store.UpdateChaosRule(rule) ? Results.Ok(rule) : Results.NotFound();
+});
+
+api.MapDelete("/rules/chaos/{id:guid}", (Guid id, RuleStore store) =>
+    store.RemoveChaosRule(id) ? Results.NoContent() : Results.NotFound());
+
+api.MapPatch("/rules/chaos/{id:guid}/toggle", (Guid id, RuleStore store) =>
+{
+    var updated = store.ToggleChaosRule(id);
+    return updated is not null ? Results.Ok(updated) : Results.NotFound();
+});
+
+api.MapGet("/rules/mocks", (RuleStore store) =>
+    Results.Ok(store.GetMockRules()));
+
+api.MapPost("/rules/mocks", (MockRule rule, RuleStore store) =>
+{
+    rule = rule with { Id = Guid.NewGuid() };
+    store.AddMockRule(rule);
+    return Results.Created($"/api/rules/mocks/{rule.Id}", rule);
+});
+
+api.MapPut("/rules/mocks/{id:guid}", (Guid id, MockRule rule, RuleStore store) =>
+{
+    rule = rule with { Id = id };
+    return store.UpdateMockRule(rule) ? Results.Ok(rule) : Results.NotFound();
+});
+
+api.MapDelete("/rules/mocks/{id:guid}", (Guid id, RuleStore store) =>
+    store.RemoveMockRule(id) ? Results.NoContent() : Results.NotFound());
+
+api.MapGet("/rules/routing", (RuleStore store) =>
+    Results.Ok(store.GetRoutingRules()));
+
+api.MapPost("/rules/routing", (RoutingRule rule, RuleStore store) =>
+{
+    rule = rule with { Id = Guid.NewGuid() };
+    store.AddRoutingRule(rule);
+    return Results.Created($"/api/rules/routing/{rule.Id}", rule);
+});
+
+api.MapPut("/rules/routing/{id:guid}", (Guid id, RoutingRule rule, RuleStore store) =>
+{
+    rule = rule with { Id = id };
+    return store.UpdateRoutingRule(rule) ? Results.Ok(rule) : Results.NotFound();
+});
+
+api.MapDelete("/rules/routing/{id:guid}", (Guid id, RuleStore store) =>
+    store.RemoveRoutingRule(id) ? Results.NoContent() : Results.NotFound());
+
+api.MapGet("/log", (RuleStore store) =>
+    Results.Ok(store.GetRequestLog()));
+
+api.MapDelete("/log", (RuleStore store) =>
+{
+    store.ClearRequestLog();
+    return Results.NoContent();
+});
+
+api.MapPost("/replay", async (
+    ReplayRequestDto req,
+    TunnelSettings cfg,
+    IHttpClientFactory factory,
+    CancellationToken ct) =>
+{
+    try
+    {
+        var client = factory.CreateClient("tunnel");
+        var targetUrl = $"http://localhost:{cfg.LocalPort}{req.Path}";
+        var message = new HttpRequestMessage(new HttpMethod(req.Method), targetUrl);
+
+        var contentHeaderNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Content-Type", "Content-Length", "Content-Encoding",
+            "Content-Language", "Content-Location", "Content-MD5",
+            "Content-Range", "Content-Disposition"
+        };
+
+        if (req.Headers is not null)
+            foreach (var (key, value) in req.Headers)
+                if (!contentHeaderNames.Contains(key))
+                    message.Headers.TryAddWithoutValidation(key, value);
+
+        bool hasBody = !string.IsNullOrEmpty(req.Body)
+            && req.Method.ToUpperInvariant() is not ("GET" or "DELETE" or "HEAD" or "OPTIONS");
+
+        if (hasBody)
+        {
+            var mediaType = (req.Headers?.GetValueOrDefault("Content-Type") ?? "application/json")
+                            .Split(';')[0].Trim();
+            message.Content = new StringContent(req.Body!, Encoding.UTF8, mediaType);
         }
-    });
 
-    // Main Loop
-    while (ws.State == WebSocketState.Open)
-    {
-        var result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
-        if (result.MessageType == WebSocketMessageType.Close) break;
+        var sw = Stopwatch.StartNew();
+        var response = await client.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, ct);
+        sw.Stop();
 
-        var packet = new byte[result.Count];
-        Array.Copy(buffer, packet, result.Count);
+        var responseBody = await response.Content.ReadAsStringAsync(ct);
 
-        _ = Task.Run(async () =>
+        var allHeaders = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var h in response.Headers) allHeaders[h.Key] = string.Join(", ", h.Value);
+        foreach (var h in response.Content.Headers) allHeaders[h.Key] = string.Join(", ", h.Value);
+
+        return Results.Ok(new
         {
-            Stream? bodyStream = null;
-            try
-            {
-                var idBytes = new byte[16];
-                Array.Copy(packet, 0, idBytes, 0, 16);
-
-                string command = Encoding.UTF8.GetString(packet, 16, packet.Length - 16);
-                var parts = command.Split(' ', 2);
-
-                if (parts.Length < 2) return;
-
-                string method = parts[0];
-                string path = parts[1];
-                string targetUrl = $"{localBaseUrl}{path}";
-
-                Console.WriteLine($"[📥 IN] {method} {path}");
-
-                if (chaosConfig.LatencyMs > 0) await Task.Delay(chaosConfig.LatencyMs);
-
-                HttpResponseMessage response;
-                int statusCode;
-                string contentType;
-
-                try
-                {
-                    response = await httpClient.GetAsync(targetUrl, HttpCompletionOption.ResponseHeadersRead);
-                    statusCode = (int)response.StatusCode;
-                    contentType = response.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
-                    bodyStream = await response.Content.ReadAsStreamAsync();
-                }
-                catch (HttpRequestException)
-                {
-                    statusCode = 502;
-                    contentType = "text/plain";
-                    bodyStream = new MemoryStream(Encoding.UTF8.GetBytes("Local server error"));
-                }
-
-                var color = statusCode == 200 ? ConsoleColor.Gray : ConsoleColor.Yellow;
-                if (statusCode >= 400) color = ConsoleColor.Red;
-
-                Console.ForegroundColor = color;
-                Console.WriteLine($"   [📤 OUT] {statusCode} {contentType} (Multiplexing...)");
-                Console.ResetColor();
-
-                byte[] typeBytes = Encoding.UTF8.GetBytes(contentType);
-                byte[] typeLenBytes = BitConverter.GetBytes(typeBytes.Length);
-                byte[] statusBytes = BitConverter.GetBytes(statusCode);
-
-                // --- 1. HEADER PACKET (Type = 0x01) ---
-                var headerPacket = new byte[16 + 1 + 4 + 4 + typeBytes.Length];
-                Array.Copy(idBytes, 0, headerPacket, 0, 16);
-                headerPacket[16] = 0x01; // <--- Type: Header
-                Array.Copy(statusBytes, 0, headerPacket, 17, 4);
-                Array.Copy(typeLenBytes, 0, headerPacket, 21, 4);
-                Array.Copy(typeBytes, 0, headerPacket, 25, typeBytes.Length);
-
-                await sendLock.WaitAsync();
-                try { if (ws.State == WebSocketState.Open) await ws.SendAsync(new ArraySegment<byte>(headerPacket), WebSocketMessageType.Binary, true, CancellationToken.None); }
-                finally { sendLock.Release(); }
-
-                // --- 2. DATA PACKET (Type = 0x02) ---
-                var localBuffer = System.Buffers.ArrayPool<byte>.Shared.Rent(1024 * 16); // 16 KB буфер
-                try
-                {
-                    int bytesRead;
-                    while ((bytesRead = await bodyStream.ReadAsync(localBuffer)) > 0)
-                    {
-                        var chunkPacket = new byte[16 + 1 + bytesRead];
-                        Array.Copy(idBytes, 0, chunkPacket, 0, 16);
-                        chunkPacket[16] = 0x02; // <--- Type: Chunk
-                        Array.Copy(localBuffer, 0, chunkPacket, 17, bytesRead);
-
-                        await sendLock.WaitAsync(); // Block only for a moment while send the chunk
-                        try { if (ws.State == WebSocketState.Open) await ws.SendAsync(new ArraySegment<byte>(chunkPacket), WebSocketMessageType.Binary, true, CancellationToken.None); }
-                        finally { sendLock.Release(); }
-                    }
-                }
-                finally
-                {
-                    System.Buffers.ArrayPool<byte>.Shared.Return(localBuffer);
-                }
-
-                // --- 3. EOF PACKET (Type = 0x03) ---
-                var eofPacket = new byte[17];
-                Array.Copy(idBytes, 0, eofPacket, 0, 16);
-                eofPacket[16] = 0x03; // <--- Type: EOF
-
-                await sendLock.WaitAsync();
-                try { if (ws.State == WebSocketState.Open) await ws.SendAsync(new ArraySegment<byte>(eofPacket), WebSocketMessageType.Binary, true, CancellationToken.None); }
-                finally { sendLock.Release(); }
-            }
-            catch (Exception ex)
-            {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"[Err] {ex.Message}");
-                Console.ResetColor();
-            }
-            finally
-            {
-                if (bodyStream != null) await bodyStream.DisposeAsync();
-            }
+            statusCode = (int)response.StatusCode,
+            durationMs = sw.ElapsedMilliseconds,
+            headers = allHeaders,
+            body = responseBody
         });
     }
+    catch (HttpRequestException ex)
+    {
+        return Results.Ok(new
+        {
+            statusCode = 502,
+            durationMs = 0L,
+            headers = new Dictionary<string, string>(),
+            body = $"Connection failed: {ex.Message}"
+        });
+    }
+});
+
+if (isPrimary)
+    app.MapFallbackToFile("index.html");
+
+await app.RunAsync();
+
+
+/// <summary>
+/// Tries ports [start, start+49] and returns the first one that is not bound.
+/// Uses TcpListener.Start/Stop as a reliable cross-platform availability probe.
+/// </summary>
+static int FindAvailablePort(int start, int range = 50)
+{
+    for (int port = start; port < start + range; port++)
+    {
+        try
+        {
+            using var l = new TcpListener(System.Net.IPAddress.Loopback, port);
+            l.Start();
+            l.Stop();
+            return port;
+        }
+        catch (SocketException) { /* port in use — try next */ }
+    }
+
+    throw new InvalidOperationException(
+        $"No available port found in range {start}–{start + range - 1}.");
 }
+
+
+record ReplayRequestDto(
+    string Method,
+    string Path,
+    Dictionary<string, string>? Headers,
+    string? Body
+);
+
+/// <summary>
+/// Topology facts about the current process, computed at startup.
+/// Injected as a singleton so services can query their role.
+/// </summary>
+public record DashboardInfo(
+    int DashboardPort,
+    int StartPort,
+    bool IsPrimary,
+    string MyApiUrl,
+    string PrimaryApiUrl
+);
