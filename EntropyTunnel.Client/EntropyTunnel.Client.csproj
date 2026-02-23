@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -6,23 +6,44 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+    <!-- Path where Vite outputs the built SPA -->
+    <DashboardDistDir>$(MSBuildProjectDirectory)\dashboard\dist</DashboardDistDir>
   </PropertyGroup>
 
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       MSBuild integration: build the React/Vite dashboard before C# compiles.
+       Vite outputs to dashboard/dist; we copy that into wwwroot so ASP.NET
+       Core's UseStaticFiles() serves it automatically.
+       ═══════════════════════════════════════════════════════════════════════ -->
+  <Target Name="NpmInstall" BeforeTargets="BuildDashboard"
+          Condition="!Exists('$(MSBuildProjectDirectory)\dashboard\node_modules')">
+    <Message Text="📦  Installing dashboard npm dependencies..." Importance="high" />
+    <Exec Command="npm install" WorkingDirectory="$(MSBuildProjectDirectory)\dashboard" />
+  </Target>
+
+  <Target Name="BuildDashboard" BeforeTargets="BeforeBuild">
+    <Message Text="⚛️   Building React dashboard (Vite)..." Importance="high" />
+    <Exec Command="npm run build" WorkingDirectory="$(MSBuildProjectDirectory)\dashboard" />
+
+    <!-- Ensure wwwroot exists -->
+    <MakeDir Directories="$(MSBuildProjectDirectory)\wwwroot" />
+
+    <!-- Copy the built SPA into wwwroot, overwriting stale files -->
+    <ItemGroup>
+      <DashboardFiles Include="$(DashboardDistDir)\**\*.*" />
+    </ItemGroup>
+    <Copy
+      SourceFiles="@(DashboardFiles)"
+      DestinationFiles="@(DashboardFiles->'$(MSBuildProjectDirectory)\wwwroot\%(RecursiveDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true" />
+  </Target>
+
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.3" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.3" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.3" />
     <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.21.0" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\EntropyTunnel.Core\EntropyTunnel.Core.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Update="appsettings.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
   </ItemGroup>
 
 </Project>

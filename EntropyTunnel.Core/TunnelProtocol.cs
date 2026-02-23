@@ -4,9 +4,9 @@ namespace EntropyTunnel.Core
 {
     public enum FrameType : byte
     {
-        Open = 0x01,  // Сервер каже Клієнту: "Відкрий новий сокет на Next.js"
-        Data = 0x02,  // Передача шматка даних
-        Close = 0x03  // З'єднання закрите
+        Open = 0x01,
+        Data = 0x02,
+        Close = 0x03
     }
 
     // Структура нашого пакета в байтах:
@@ -19,13 +19,13 @@ namespace EntropyTunnel.Core
         {
             var frame = new byte[HeaderSize + count];
 
-            // 1. Пишемо ID (16 байт)
+            // 1. ID (16 байт)
             Array.Copy(connectionId.ToByteArray(), 0, frame, 0, 16);
 
-            // 2. Пишемо Тип (1 байт)
+            // 2. Type (1 байт)
             frame[16] = (byte)type;
 
-            // 3. Пишемо Дані (якщо є)
+            // 3. Payload (N bites)
             if (count > 0 && data != null)
             {
                 Array.Copy(data, 0, frame, HeaderSize, count);
