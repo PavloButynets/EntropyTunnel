@@ -3,7 +3,7 @@ name: Build and Release
 on:
   push:
     tags:
-      - "v*" # Спрацює тільки коли ти пушиш тег, що починається з "v" (наприклад, v1.0.1)
+      - "v*"
 
 jobs:
   build-and-release:
