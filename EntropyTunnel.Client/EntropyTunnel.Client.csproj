@@ -7,7 +7,7 @@
     <Nullable>enable</Nullable>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
     <!-- Path where Vite outputs the built SPA -->
-    <DashboardDistDir>$(MSBuildProjectDirectory)\dashboard\dist</DashboardDistDir>
+    <DashboardDistDir>$(MSBuildProjectDirectory)\Dashboard\dist</DashboardDistDir>
   </PropertyGroup>
 
   <!-- ═══════════════════════════════════════════════════════════════════════
