@@ -1,7 +1,8 @@
 using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
-using System.Threading.Channels; // Обов'язково для стрімінгу
+using System.Text.Json;
+using System.Threading.Channels;
 
 var builder = WebApplication.CreateBuilder(args);
 var app = builder.Build();
@@ -11,8 +12,8 @@ app.UseWebSockets();
 var _connectedAgents = new ConcurrentDictionary<string, WebSocket>();
 var _agentLocks = new ConcurrentDictionary<string, SemaphoreSlim>();
 
-// Store requests while waiting fot the Header (0x01)
-var _pendingRequests = new ConcurrentDictionary<Guid, TaskCompletionSource<(string ContentType, int StatusCode, ChannelReader<byte[]> BodyReader)>>();
+// Store requests while waiting for the Header (0x01).
+var _pendingRequests = new ConcurrentDictionary<Guid, TaskCompletionSource<(string ContentType, int StatusCode, ChannelReader<byte[]> BodyReader, Dictionary<string, string[]> Headers)>>();
 // Store channels for active streams (0x02)
 var _activeChannels = new ConcurrentDictionary<Guid, Channel<byte[]>>();
 
@@ -65,11 +66,18 @@ app.Map("/tunnel", async (HttpContext context) =>
                 int typeLen = BitConverter.ToInt32(packet, 21);
                 string contentType = Encoding.UTF8.GetString(packet, 25, typeLen);
 
+                // Parse response headers — agent sends Dictionary<string, string[]>
+                // so that multi-value headers (Set-Cookie, WWW-Authenticate…) are preserved.
+                int headersJsonLen = BitConverter.ToInt32(packet, 25 + typeLen);
+                string headersJson = Encoding.UTF8.GetString(packet, 29 + typeLen, headersJsonLen);
+                var headers = JsonSerializer.Deserialize<Dictionary<string, string[]>>(headersJson)
+                    ?? new Dictionary<string, string[]>();
+
                 var channel = Channel.CreateUnbounded<byte[]>();
                 _activeChannels[id] = channel;
 
                 if (_pendingRequests.TryRemove(id, out var tcs))
-                    tcs.SetResult((contentType, statusCode, channel.Reader));
+                    tcs.SetResult((contentType, statusCode, channel.Reader, headers));
             }
             else if (packetType == 0x02) // Data Chunk
             {
@@ -107,7 +115,7 @@ app.Map("{*path}", async (HttpContext context, string? path) =>
 
     if (char.IsDigit(clientId[0]) || clientId == "localhost")
     {
-        return Results.Ok($"Entropy Tunnel v0.8 MULTIPLEXED. Usage: http://<client-id>.{context.Request.Host.Value}/");
+        return Results.Ok($"Entropy Tunnel v0.9 FULL-PROXY. Usage: http://<client-id>.{context.Request.Host.Value}/");
     }
 
     if (!_connectedAgents.TryGetValue(clientId, out var agentSocket) || agentSocket.State != WebSocketState.Open)
@@ -116,32 +124,120 @@ app.Map("{*path}", async (HttpContext context, string? path) =>
     }
 
     var requestId = Guid.NewGuid();
-    var tcs = new TaskCompletionSource<(string ContentType, int StatusCode, ChannelReader<byte[]> BodyReader)>();
+    var tcs = new TaskCompletionSource<(string ContentType, int StatusCode, ChannelReader<byte[]> BodyReader, Dictionary<string, string[]> Headers)>();
     _pendingRequests.TryAdd(requestId, tcs);
 
     string targetPath = path ?? "";
-    string command = $"{context.Request.Method} /{targetPath}{context.Request.QueryString}";
+    string fullPath = $"/{targetPath}{context.Request.QueryString}";
 
-    byte[] commandBytes = Encoding.UTF8.GetBytes(command);
-    byte[] packet = new byte[16 + commandBytes.Length];
-    Array.Copy(requestId.ToByteArray(), 0, packet, 0, 16);
-    Array.Copy(commandBytes, 0, packet, 16, commandBytes.Length);
+    // Forward all request headers with two targeted exclusions:
+    //   Host             - HttpClient on the agent sets this from the target URL;
+    //                      forwarding the tunnel's public hostname would break virtual-host
+    //                      checks and CORS validation on the local service.
+    //   Transfer-Encoding - describes THIS transport hop; the body is fully buffered before
+    //                      forwarding, so the original encoding no longer applies downstream.
+    var requestHeaders = new Dictionary<string, string>();
+    foreach (var header in context.Request.Headers)
+    {
+        if (header.Key.Equals("Host", StringComparison.OrdinalIgnoreCase)) continue;
+        if (header.Key.Equals("Transfer-Encoding", StringComparison.OrdinalIgnoreCase)) continue;
+        requestHeaders[header.Key] = string.Join(", ", header.Value.ToArray());
+    }
+
+    bool hasBody = context.Request.ContentLength > 0
+                || context.Request.Headers.ContainsKey("Transfer-Encoding");
+    var requestMeta = new
+    {
+        Method = context.Request.Method,
+        Path = fullPath,
+        Headers = requestHeaders,
+        HasBody = hasBody,
+    };
+
+    string metaJson = JsonSerializer.Serialize(requestMeta);
+    byte[] metaBytes = Encoding.UTF8.GetBytes(metaJson);
+    byte[] headerPacket = new byte[16 + 1 + 4 + metaBytes.Length];
+
+    Array.Copy(requestId.ToByteArray(), 0, headerPacket, 0, 16);
+    headerPacket[16] = 0x10; // New packet type: Request Header
+    Array.Copy(BitConverter.GetBytes(metaBytes.Length), 0, headerPacket, 17, 4);
+    Array.Copy(metaBytes, 0, headerPacket, 21, metaBytes.Length);
 
     if (_agentLocks.TryGetValue(clientId, out var lockSlim))
     {
         await lockSlim.WaitAsync();
-        try { await agentSocket.SendAsync(new ArraySegment<byte>(packet), WebSocketMessageType.Binary, true, CancellationToken.None); }
+        try
+        {
+            await agentSocket.SendAsync(new ArraySegment<byte>(headerPacket),
+                WebSocketMessageType.Binary, true, CancellationToken.None);
+        }
         finally { lockSlim.Release(); }
     }
 
-    // Wait for the first pachet(Header) (Заголовок 0x01)
+    // Stream request body if present
+    if (requestMeta.HasBody && context.Request.Body.CanRead)
+    {
+        const int chunkSize = 16 * 1024;
+        byte[] buffer = new byte[chunkSize];
+        int bytesRead;
+
+        while ((bytesRead = await context.Request.Body.ReadAsync(buffer)) > 0)
+        {
+            byte[] bodyChunk = new byte[16 + 1 + bytesRead];
+            Array.Copy(requestId.ToByteArray(), 0, bodyChunk, 0, 16);
+            bodyChunk[16] = 0x11; // Packet type: Request Body Chunk
+            Array.Copy(buffer, 0, bodyChunk, 17, bytesRead);
+
+            if (_agentLocks.TryGetValue(clientId, out lockSlim))
+            {
+                await lockSlim.WaitAsync();
+                try
+                {
+                    await agentSocket.SendAsync(new ArraySegment<byte>(bodyChunk),
+                        WebSocketMessageType.Binary, true, CancellationToken.None);
+                }
+                finally { lockSlim.Release(); }
+            }
+        }
+    }
+
+    // Send end-of-request marker
+    byte[] eofPacket = new byte[17];
+    Array.Copy(requestId.ToByteArray(), 0, eofPacket, 0, 16);
+    eofPacket[16] = 0x12; // Packet type: Request EOF
+
+    if (_agentLocks.TryGetValue(clientId, out lockSlim))
+    {
+        await lockSlim.WaitAsync();
+        try
+        {
+            await agentSocket.SendAsync(new ArraySegment<byte>(eofPacket),
+                WebSocketMessageType.Binary, true, CancellationToken.None);
+        }
+        finally { lockSlim.Release(); }
+    }
+
+    // Wait for response
     var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(30000));
 
     if (completedTask == tcs.Task)
     {
         var result = await tcs.Task;
         context.Response.StatusCode = result.StatusCode;
+        // Content-Type is carried separately in result.ContentType (set by the agent).
+        // Headers dict never contains Content-Type, so just assign it directly.
         context.Response.ContentType = result.ContentType;
+
+        // Forward all response headers.
+        foreach (var header in result.Headers)
+        {
+            if (header.Key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase) ||
+                header.Key.Equals("Transfer-Encoding", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            context.Response.Headers[header.Key] =
+                new Microsoft.Extensions.Primitives.StringValues(header.Value);
+        }
 
         await foreach (var chunk in result.BodyReader.ReadAllAsync())
         {
@@ -154,7 +250,7 @@ app.Map("{*path}", async (HttpContext context, string? path) =>
     else
     {
         _pendingRequests.TryRemove(requestId, out _);
-        _activeChannels.TryRemove(requestId, out _); // Очистка при таймауті
+        _activeChannels.TryRemove(requestId, out _);
         return Results.StatusCode(504);
     }
 });

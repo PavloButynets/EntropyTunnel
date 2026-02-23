@@ -5,8 +5,6 @@ using System.Threading.Tasks;
 
 namespace EntropyTunnel.Core
 {
-    // Цей клас прикидається звичайним потоком (Stream), 
-    // але всередині робить капості
     public class ChaosStream : Stream
     {
         private readonly Stream _innerStream;
@@ -18,19 +16,16 @@ namespace EntropyTunnel.Core
             _config = config;
         }
 
-        // Перехоплюємо запис даних
         public override async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
         {
             if (_config.IsEnabled)
             {
-                // 1. Втрата пакетів
                 if (_config.PacketLossRate > 0 && Random.Shared.NextDouble() < _config.PacketLossRate)
                 {
                     Console.WriteLine("❌ Packet LOST!");
-                    return; // Просто виходимо, не записуючи дані (імітація втрати)
+                    return;
                 }
 
-                // 2. Затримка (Latency + Jitter)
                 if (_config.LatencyMs > 0)
                 {
                     double delay = MathUtils.NextGaussian(_config.LatencyMs, _config.JitterMs);
@@ -38,17 +33,14 @@ namespace EntropyTunnel.Core
 
                     if (finalDelay > 0)
                     {
-                        // Console.WriteLine($"⏳ Delay: {finalDelay}ms");
                         await Task.Delay(finalDelay, cancellationToken);
                     }
                 }
             }
 
-            // Якщо пакет вижив — передаємо далі
             await _innerStream.WriteAsync(buffer, offset, count, cancellationToken);
         }
 
-        // --- Обов'язкові методи Stream (просто прокидаємо їх далі) ---
         public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
             => await _innerStream.ReadAsync(buffer, offset, count, cancellationToken);
 
