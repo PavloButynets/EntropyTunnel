@@ -31,7 +31,8 @@ else if (args.Length != 0)
 
 var preConfig = new ConfigurationBuilder()
     .SetBasePath(AppContext.BaseDirectory)
-    .AddJsonFile("appsettings.json", optional: false)
+    .AddJsonFile("appsettings.json", optional: true)
+    .AddEnvironmentVariables()
     .Build();
 
 
@@ -44,6 +45,11 @@ string myApiUrl = $"http://localhost:{dashboardPort}";
 string primaryApiUrl = $"http://localhost:{startPort}";
 
 var builder = WebApplication.CreateBuilder(aspNetArgs);
+builder.Configuration
+    .SetBasePath(AppContext.BaseDirectory)
+    .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
+    .AddEnvironmentVariables();
+
 builder.WebHost.UseUrls(myApiUrl);
 
 builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
