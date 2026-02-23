@@ -19,16 +19,28 @@ jobs:
       - name: 🛠️ Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "8.0.x"
+          dotnet-version: "9.0.x"
 
-      - name: 🚀 Publish Windows x64 (Single File)
-        run: dotnet publish EntropyTunnel.Client/EntropyTunnel.Client.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o ./publish/win-x64
+      - name: 🚀 Publish Windows (x64)
+        run: dotnet publish EntropyTunnel.Client/EntropyTunnel.Client.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o ./publish/win
 
-      - name: 📦 Create GitHub Release and Upload .exe
+      - name: 🚀 Publish Linux (x64)
+        run: dotnet publish EntropyTunnel.Client/EntropyTunnel.Client.csproj -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -o ./publish/linux
+
+      - name: 🚀 Publish macOS
+        run: dotnet publish EntropyTunnel.Client/EntropyTunnel.Client.csproj -c Release -r osx-arm64 --self-contained true -p:PublishSingleFile=true -o ./publish/mac-arm
+      - name: 🏷️ Rename Mac and Linux binaries
+        run: |
+          mv ./publish/linux/EntropyTunnel.Client ./publish/linux/entropy-linux-amd64
+          mv ./publish/mac-arm/EntropyTunnel.Client ./publish/mac-arm/entropy-darwin-arm64
+
+      - name: 📦 Create GitHub Release and Upload ALL Assets
         uses: softprops/action-gh-release@v2
         with:
-          files: ./publish/win-x64/EntropyTunnel.Client.exe
+          files: |
+            ./publish/win/EntropyTunnel.Client.exe
+            ./publish/linux/entropy-linux-amd64
+            ./publish/mac-arm/entropy-darwin-arm64
+            ./publish/mac-intel/entropy-darwin-amd64
           name: Release ${{ github.ref_name }}
           generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
