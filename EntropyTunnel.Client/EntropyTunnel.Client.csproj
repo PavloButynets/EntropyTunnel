@@ -16,14 +16,14 @@
        Core's UseStaticFiles() serves it automatically.
        ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="NpmInstall" BeforeTargets="BuildDashboard"
-          Condition="!Exists('$(MSBuildProjectDirectory)\dashboard\node_modules')">
+          Condition="!Exists('$(MSBuildProjectDirectory)\Dashboard\node_modules')">
     <Message Text="📦  Installing dashboard npm dependencies..." Importance="high" />
-    <Exec Command="npm install" WorkingDirectory="$(MSBuildProjectDirectory)\dashboard" />
+    <Exec Command="npm install" WorkingDirectory="$(MSBuildProjectDirectory)\Dashboard" />
   </Target>
 
   <Target Name="BuildDashboard" BeforeTargets="BeforeBuild">
     <Message Text="⚛️   Building React dashboard (Vite)..." Importance="high" />
-    <Exec Command="npm run build" WorkingDirectory="$(MSBuildProjectDirectory)\dashboard" />
+    <Exec Command="npm run build" WorkingDirectory="$(MSBuildProjectDirectory)\Dashboard" />
 
     <!-- Ensure wwwroot exists -->
     <MakeDir Directories="$(MSBuildProjectDirectory)\wwwroot" />
