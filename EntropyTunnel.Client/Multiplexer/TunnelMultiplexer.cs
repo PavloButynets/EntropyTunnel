@@ -1,20 +1,33 @@
 using System.Buffers;
 using System.Net.WebSockets;
 using System.Text;
+using System.Text.Json;
+using EntropyTunnel.Core;
+using EntropyTunnel.Core.Models;
 
 namespace EntropyTunnel.Client.Multiplexer;
 
 /// <summary>
 /// Owns the active WebSocket connection and handles all outbound framing.
 ///
-/// Wire format:
-///   Header  (0x01): [16B RequestId][0x01][4B statusCode][4B contentTypeLen][contentType]
+/// Request-bound wire format (identified by a non-zero 16-byte request ID):
+///   Header  (0x01): [16B RequestId][0x01][4B statusCode][4B contentTypeLen][contentType][4B headersLen][headersJSON]
 ///   Chunk   (0x02): [16B RequestId][0x02][N bytes body chunk]
 ///   EOF     (0x03): [16B RequestId][0x03]
 ///   Ping    (0x00): [0x00]
+///
+/// Control frame wire format (identified by Guid.Empty as the first 16 bytes):
+///   [16B: Guid.Empty][1B: type][4B: jsonLen][N B: UTF-8 JSON]
+///   Types: 0x20 SyncRules (Server->Client), 0x21 LogEvent (Client->Server), 0x22 SessionAuth (Server->Client)
 /// </summary>
 public sealed class TunnelMultiplexer
 {
+    private static readonly JsonSerializerOptions _jsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true,
+    };
+
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private ClientWebSocket? _ws;
 
@@ -88,6 +101,74 @@ public sealed class TunnelMultiplexer
         eofPacket[16] = 0x03;
 
         await SendRawAsync(eofPacket, ct);
+    }
+
+    // Control Frames
+
+    /// <summary>
+    /// Sends a 0x21 LogEvent control frame to the server carrying the completed
+    /// <paramref name="entry"/> serialized as camelCase JSON.
+    /// RequestBodyPreview is truncated to 2 KB before serialization to cap frame size.
+    /// </summary>
+    public Task SendLogEventAsync(RequestLogEntry entry, CancellationToken ct)
+    {
+        if (entry.RequestBodyPreview?.Length > 2048)
+            entry = entry with { RequestBodyPreview = entry.RequestBodyPreview[..2048] };
+
+        return SendControlFrameAsync(ControlFrame.LogEvent, entry, ct);
+    }
+
+    /// <summary>
+    /// Tries to parse an inbound packet as a control frame (0x20 SyncRules or 0x22 SessionAuth).
+    /// Returns true when successful; <paramref name="frameType"/> and <paramref name="jsonPayload"/>
+    /// are set only on success.
+    ///
+    /// A control frame is recognized by bytes 0–15 being all zero (Guid.Empty).
+    /// </summary>
+    public static bool TryParseControlFrame(byte[] packet, out byte frameType, out string jsonPayload)
+    {
+        frameType = 0;
+        jsonPayload = string.Empty;
+
+        // Minimum: 16B Guid.Empty + 1B type + 4B jsonLen = 21 bytes
+        if (packet.Length < 21) return false;
+
+        // All 16 request-ID bytes must be zero to qualify as a control frame
+        for (int i = 0; i < 16; i++)
+            if (packet[i] != 0) return false;
+
+        byte type = packet[16];
+        if (type != ControlFrame.SyncRules && type != ControlFrame.SessionAuth)
+            return false;
+
+        int jsonLen = BitConverter.ToInt32(packet, 17);
+        if (jsonLen < 0 || packet.Length < 21 + jsonLen) return false;
+
+        frameType = type;
+        jsonPayload = Encoding.UTF8.GetString(packet, 21, jsonLen);
+        return true;
+    }
+
+    /// <summary>
+    /// Deserializes a JSON payload previously extracted by <see cref="TryParseControlFrame"/>
+    /// into the requested payload type.
+    /// </summary>
+    public static T? DeserializePayload<T>(string jsonPayload) =>
+        JsonSerializer.Deserialize<T>(jsonPayload, _jsonOptions);
+
+    private Task SendControlFrameAsync<T>(byte frameType, T payload, CancellationToken ct)
+    {
+        string json = JsonSerializer.Serialize(payload, _jsonOptions);
+        byte[] jsonBytes = Encoding.UTF8.GetBytes(json);
+
+        // [16B Guid.Empty][1B type][4B jsonLen][N B JSON]
+        var packet = new byte[16 + 1 + 4 + jsonBytes.Length];
+        // bytes 0-15 stay zero (Guid.Empty)
+        packet[16] = frameType;
+        BitConverter.GetBytes(jsonBytes.Length).CopyTo(packet, 17);
+        jsonBytes.CopyTo(packet, 21);
+
+        return SendRawAsync(packet, ct);
     }
 
     private async Task SendRawAsync(byte[] packet, CancellationToken ct)

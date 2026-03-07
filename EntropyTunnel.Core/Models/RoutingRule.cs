@@ -1,4 +1,4 @@
-namespace EntropyTunnel.Client.Models;
+namespace EntropyTunnel.Core.Models;
 
 /// <summary>
 /// Routes matched paths to a specific local base URL instead of the default port.

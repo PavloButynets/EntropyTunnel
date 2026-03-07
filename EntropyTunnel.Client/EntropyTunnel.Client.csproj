@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -6,40 +6,27 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
-    <!-- Path where Vite outputs the built SPA -->
-    <DashboardDistDir>$(MSBuildProjectDirectory)\Dashboard\dist</DashboardDistDir>
   </PropertyGroup>
 
-  <!-- ═══════════════════════════════════════════════════════════════════════
-       MSBuild integration: build the React/Vite dashboard before C# compiles.
-       Vite outputs to dashboard/dist; we copy that into wwwroot so ASP.NET
-       Core's UseStaticFiles() serves it automatically.
-       ═══════════════════════════════════════════════════════════════════════ -->
-  <Target Name="NpmInstall" BeforeTargets="BuildDashboard"
-          Condition="!Exists('$(MSBuildProjectDirectory)\Dashboard\node_modules')">
-    <Message Text="📦  Installing dashboard npm dependencies..." Importance="high" />
-    <Exec Command="npm install" WorkingDirectory="$(MSBuildProjectDirectory)\Dashboard" />
-  </Target>
+  <ItemGroup>
+    <Content Include="appsettings*.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
 
-  <Target Name="BuildDashboard" BeforeTargets="BeforeBuild">
-    <Message Text="⚛️   Building React dashboard (Vite)..." Importance="high" />
-    <Exec Command="npm run build" WorkingDirectory="$(MSBuildProjectDirectory)\Dashboard" />
-
-    <!-- Ensure wwwroot exists -->
-    <MakeDir Directories="$(MSBuildProjectDirectory)\wwwroot" />
-
-    <!-- Copy the built SPA into wwwroot, overwriting stale files -->
-    <ItemGroup>
-      <DashboardFiles Include="$(DashboardDistDir)\**\*.*" />
-    </ItemGroup>
-    <Copy
-      SourceFiles="@(DashboardFiles)"
-      DestinationFiles="@(DashboardFiles->'$(MSBuildProjectDirectory)\wwwroot\%(RecursiveDir)%(Filename)%(Extension)')"
-      SkipUnchangedFiles="true" />
-  </Target>
+  <!-- Re-add the implicit usings that Microsoft.NET.Sdk.Web would have provided -->
+  <ItemGroup>
+    <Using Include="Microsoft.Extensions.Configuration" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.Hosting" />
+    <Using Include="Microsoft.Extensions.Logging" />
+  </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.21.0" />
+    <!-- Generic host: BackgroundService, IHostedService, ILogger<>, DI, configuration -->
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
+    <!-- IHttpClientFactory + AddHttpClient extension -->
+    <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.0" />
   </ItemGroup>
 
   <ItemGroup>

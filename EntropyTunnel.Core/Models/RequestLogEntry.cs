@@ -1,9 +1,9 @@
-namespace EntropyTunnel.Client.Models;
+namespace EntropyTunnel.Core.Models;
 
 /// <summary>Immutable snapshot of a completed request - stored in the Inspector ring buffer.</summary>
 public sealed record RequestLogEntry
 {
-    // ── Basic fields ──────────────────────────────────────────────────────────
+    // Basic fields
     public Guid RequestId { get; init; }
     public DateTimeOffset Timestamp { get; init; } = DateTimeOffset.UtcNow;
     public string Method { get; init; } = string.Empty;
@@ -14,7 +14,7 @@ public sealed record RequestLogEntry
     public string? AppliedMockRule { get; init; }
     public string? ResolvedTargetUrl { get; init; }
 
-    // - Full request detail - for Inspector UI
+    // Full request detail - for Inspector UI
     /// <summary>Headers forwarded from the tunnel server to this agent (hop-by-hop already stripped).</summary>
     public Dictionary<string, string>? RequestHeaders { get; init; }
 

@@ -4,7 +4,9 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using EntropyTunnel.Client.Configuration;
 using EntropyTunnel.Client.Dashboard;
-using EntropyTunnel.Client.Models;
+using EntropyTunnel.Core;
+using EntropyTunnel.Core.Models;
+using EntropyTunnel.Core.Payloads;
 using EntropyTunnel.Client.Multiplexer;
 using EntropyTunnel.Client.Pipeline;
 
@@ -12,16 +14,15 @@ namespace EntropyTunnel.Client.Services;
 
 /// <summary>
 /// BackgroundService that owns the WebSocket lifecycle.
-/// Runs concurrently with the Kestrel web server (dashboard on :4040).
-///   - Connect / auto-reconnect to the remote EntropyTunnel.Server
-///   - Receive incoming request commands from the server
-///   - Dispatch each command through the RequestPipeline (fire-and-forget per request)
-///   - Send responses via TunnelMultiplexer (0x01/0x02/0x03 protocol)
+///   - Connect / auto-reconnect to EntropyTunnel.Server
+///   - Handle 0x20 SyncRules: atomically update local RuleStore
+///   - Handle 0x22 SessionAuth: print ngrok-style connection banner
+///   - Dispatch 0x10/0x11/0x12 request frames through RequestPipeline
+///   - Send 0x21 LogEvent to the server after each request (replaces local log)
 ///   - Keep the connection alive with heartbeat pings
-///   - Log completed requests to RuleStore for the Inspector UI
 /// </summary>
-/// 
 public record RequestMetadata(string Method, string Path, Dictionary<string, string> Headers, bool HasBody);
+
 public record IncomingRequest
 {
     public Guid RequestId { get; init; }
@@ -30,13 +31,13 @@ public record IncomingRequest
     public Dictionary<string, string> Headers { get; init; } = new();
     public MemoryStream? BodyStream { get; init; }
 }
+
 public sealed class TunnelService : BackgroundService
 {
     private readonly TunnelSettings _settings;
     private readonly TunnelMultiplexer _mux;
     private readonly RequestPipeline _pipeline;
     private readonly RuleStore _ruleStore;
-    private readonly TunnelStatusService _status;
     private readonly ILogger<TunnelService> _logger;
 
     public TunnelService(
@@ -44,17 +45,14 @@ public sealed class TunnelService : BackgroundService
         TunnelMultiplexer mux,
         RequestPipeline pipeline,
         RuleStore ruleStore,
-        TunnelStatusService status,
         ILogger<TunnelService> logger)
     {
         _settings = settings;
         _mux = mux;
         _pipeline = pipeline;
         _ruleStore = ruleStore;
-        _status = status;
         _logger = logger;
     }
-
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -72,18 +70,17 @@ public sealed class TunnelService : BackgroundService
             }
             catch (Exception ex)
             {
-                _status.SetDisconnected();
-                _logger.LogWarning("Connection lost: {Msg}. Retrying in 3 s…", ex.Message);
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] ERR  Connection lost: {ex.Message} — retrying in 3s");
+                Console.ResetColor();
                 await Task.Delay(3_000, stoppingToken);
             }
         }
     }
 
-
     private async Task RunConnectionAsync(CancellationToken ct)
     {
         string serverUrl = $"{_settings.ServerUrl}?clientId={_settings.ClientId}";
-        string publicUrl = $"http://{_settings.ClientId}.{_settings.PublicDomain}/";
 
         using var ws = new ClientWebSocket();
         ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(15);
@@ -92,13 +89,6 @@ public sealed class TunnelService : BackgroundService
         await ws.ConnectAsync(new Uri(serverUrl), ct);
 
         _mux.AttachWebSocket(ws);
-        _status.SetConnected(publicUrl);
-
-        Console.ForegroundColor = ConsoleColor.Green;
-        Console.WriteLine($"\n✅  Tunnel established!");
-        Console.WriteLine($"🌍  Public URL : {publicUrl}");
-        Console.WriteLine($"🖥️   Dashboard  : http://localhost:{_settings.DashboardPort}/\n");
-        Console.ResetColor();
 
         try
         {
@@ -110,9 +100,6 @@ public sealed class TunnelService : BackgroundService
             while (ws.State == WebSocketState.Open && !ct.IsCancellationRequested)
             {
                 // Accumulate all WebSocket frames that belong to a single logical message.
-                // A single SendAsync on the server uses endOfMessage=true, but the WebSocket
-                // layer may still fragment large payloads (big cookie/auth headers) into
-                // multiple transport frames - only the last one has EndOfMessage=true.
                 using var ms = new MemoryStream();
                 WebSocketReceiveResult result;
                 do
@@ -132,6 +119,29 @@ public sealed class TunnelService : BackgroundService
                 if (ms.Length < 17) continue;
 
                 var packet = ms.ToArray();
+
+                // Control frames (Guid.Empty prefix)
+                if (TunnelMultiplexer.TryParseControlFrame(packet, out byte ctrlType, out string ctrlJson))
+                {
+                    if (ctrlType == ControlFrame.SyncRules)
+                    {
+                        var payload = TunnelMultiplexer.DeserializePayload<SyncRulesPayload>(ctrlJson);
+                        if (payload is not null)
+                        {
+                            _ruleStore.ApplySync(payload);
+                            _logger.LogDebug("Rules synced: {Chaos} chaos, {Mock} mock, {Routing} routing.",
+                                payload.ChaosRules.Count, payload.MockRules.Count, payload.RoutingRules.Count);
+                        }
+                    }
+                    else if (ctrlType == ControlFrame.SessionAuth)
+                    {
+                        var payload = TunnelMultiplexer.DeserializePayload<SessionAuthPayload>(ctrlJson);
+                        if (payload is not null) PrintSessionAuthBanner(payload);
+                    }
+                    continue;
+                }
+
+                // Request frames (non-zero request ID)
                 var requestId = new Guid(packet[..16]);
                 byte packetType = packet[16];
 
@@ -175,7 +185,6 @@ public sealed class TunnelService : BackgroundService
         finally
         {
             _mux.DetachWebSocket();
-            _status.SetDisconnected();
         }
     }
 
@@ -184,6 +193,17 @@ public sealed class TunnelService : BackgroundService
         TunnelContext? ctx = null;
         try
         {
+            // Capture body preview (first 2 KB) before the pipeline consumes the stream
+            string? bodyPreview = null;
+            if (incoming.BodyStream is { Length: > 0 } bs)
+            {
+                int previewLen = (int)Math.Min(2048, bs.Length);
+                byte[] previewBuf = new byte[previewLen];
+                _ = bs.Read(previewBuf, 0, previewLen);
+                bs.Seek(0, SeekOrigin.Begin);
+                bodyPreview = Encoding.UTF8.GetString(previewBuf);
+            }
+
             ctx = new TunnelContext
             {
                 RequestId = incoming.RequestId,
@@ -208,36 +228,17 @@ public sealed class TunnelService : BackgroundService
 
             ctx.Stopwatch.Stop();
 
-            // - Capture body preview for the Inspector (up to 4 KB)
-            string? bodyPreview = null;
-            long? contentLength = null;
-            if (incoming.BodyStream is { Length: > 0 } bodyMs)
-            {
-                contentLength = bodyMs.Length;
-                bodyMs.Seek(0, SeekOrigin.Begin);
-                var previewLen = (int)Math.Min(4096, bodyMs.Length);
-                var previewBuf = new byte[previewLen];
-                _ = await bodyMs.ReadAsync(previewBuf, ct);
-                bodyPreview = Encoding.UTF8.GetString(previewBuf);
-            }
+            long? contentLength = incoming.BodyStream is { Length: > 0 } s ? s.Length : null;
 
-            // Flatten multi-value response headers to string for display
             Dictionary<string, string>? responseHeadersForLog = null;
             if (ctx.ResponseHeaders is { Count: > 0 })
                 responseHeadersForLog = ctx.ResponseHeaders
                     .ToDictionary(kvp => kvp.Key, kvp => string.Join(", ", kvp.Value));
 
-            var color = ctx.StatusCode < 300 ? ConsoleColor.Gray
-                      : ctx.StatusCode < 400 ? ConsoleColor.Yellow
-                      : ConsoleColor.Red;
+            LogRequest(incoming.Method, incoming.Path, ctx.StatusCode, ctx.Stopwatch.ElapsedMilliseconds,
+                       ctx.AppliedChaosRule, ctx.AppliedMockRule);
 
-            Console.ForegroundColor = color;
-            Console.WriteLine($"  {incoming.Method,-6} {incoming.Path,-45} {ctx.StatusCode}  [{ctx.Stopwatch.ElapsedMilliseconds}ms]" +
-                              (ctx.AppliedChaosRule is not null ? $"  ⚡ {ctx.AppliedChaosRule}" : "") +
-                              (ctx.AppliedMockRule is not null ? $"  🎭 {ctx.AppliedMockRule}" : ""));
-            Console.ResetColor();
-
-            _ruleStore.LogRequest(new RequestLogEntry
+            await _mux.SendLogEventAsync(new RequestLogEntry
             {
                 RequestId = incoming.RequestId,
                 Method = incoming.Method,
@@ -251,11 +252,13 @@ public sealed class TunnelService : BackgroundService
                 RequestBodyPreview = bodyPreview,
                 RequestContentLength = contentLength,
                 ResponseHeaders = responseHeadersForLog,
-            });
+            }, ct);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error handling request");
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] ERR  {incoming.Method} {incoming.Path} — {ex.GetType().Name}: {ex.Message}");
+            Console.ResetColor();
         }
         finally
         {
@@ -263,82 +266,6 @@ public sealed class TunnelService : BackgroundService
             incoming.BodyStream?.Dispose();
         }
     }
-
-
-
-    private async Task HandlePacketAsync(byte[] packet, CancellationToken ct)
-    {
-        TunnelContext? ctx = null;
-        try
-        {
-            var requestId = new Guid(packet[..16]);
-            string command = Encoding.UTF8.GetString(packet, 16, packet.Length - 16);
-            var parts = command.Split(' ', 2);
-
-            if (parts.Length < 2)
-            {
-                _logger.LogWarning("Malformed command: '{Cmd}'", command);
-                return;
-            }
-
-            string method = parts[0];
-            string path = parts[1];
-
-            ctx = new TunnelContext
-            {
-                RequestId = requestId,
-                Method = method,
-                Path = path
-            };
-
-            await _pipeline.ExecuteAsync(ctx, ct);
-
-            if (ctx.ResponseStream is not null)
-            {
-                await _mux.SendResponseAsync(
-                    ctx.RequestId,
-                    ctx.StatusCode,
-                    ctx.ContentType,
-                    ctx.ResponseStream,
-                    ctx.ResponseHeaders ?? new Dictionary<string, string[]>(),
-                    ct);
-            }
-
-            ctx.Stopwatch.Stop();
-            var color = ctx.StatusCode < 300 ? ConsoleColor.Gray
-                      : ctx.StatusCode < 400 ? ConsoleColor.Yellow
-                      : ConsoleColor.Red;
-
-            Console.ForegroundColor = color;
-            Console.WriteLine($"  {method,-6} {path,-45} {ctx.StatusCode}  [{ctx.Stopwatch.ElapsedMilliseconds}ms]" +
-                              (ctx.AppliedChaosRule is not null ? $"  ⚡ {ctx.AppliedChaosRule}" : "") +
-                              (ctx.AppliedMockRule is not null ? $"  🎭 {ctx.AppliedMockRule}" : ""));
-            Console.ResetColor();
-
-            _ruleStore.LogRequest(new RequestLogEntry
-            {
-                RequestId = requestId,
-                Method = method,
-                Path = path,
-                StatusCode = ctx.StatusCode,
-                DurationMs = ctx.Stopwatch.ElapsedMilliseconds,
-                AppliedChaosRule = ctx.AppliedChaosRule,
-                AppliedMockRule = ctx.AppliedMockRule,
-                ResolvedTargetUrl = ctx.TargetUrl
-            });
-        }
-        catch (OperationCanceledException) { /* normal shutdown */ }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error handling request");
-        }
-        finally
-        {
-            if (ctx?.ResponseStream is Stream s)
-                await s.DisposeAsync();
-        }
-    }
-
 
     private async Task HeartbeatAsync(CancellationToken ct)
     {
@@ -350,21 +277,73 @@ public sealed class TunnelService : BackgroundService
                 await _mux.SendPingAsync(ct);
             }
             catch (OperationCanceledException) { break; }
-            catch { break; } // connection dropped — outer loop handles reconnect
+            catch { break; }
         }
     }
 
-
     private void PrintBanner()
     {
-        Console.ForegroundColor = ConsoleColor.Cyan;
-        Console.WriteLine("╔══════════════════════════════════════════╗");
-        Console.WriteLine("║     EntropyTunnel Agent  v1.0            ║");
-        Console.WriteLine("╚══════════════════════════════════════════╝");
-        Console.ResetColor();
-        Console.WriteLine($"  Port   : {_settings.LocalPort}");
-        Console.WriteLine($"  ID     : {_settings.ClientId}");
-        Console.WriteLine($"  Server : {_settings.ServerUrl}");
         Console.WriteLine();
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.WriteLine(@"  ████ █  █ ████ ███  ███  ███  █ █");
+        Console.WriteLine(@"  █    ██ █  █   █ █  █ █  █ █  █ █");
+        Console.WriteLine(@"  ███  █ ██  █   ███  █ █  ███   █ ");
+        Console.WriteLine(@"  █    █  █  █   █ █  █ █  █     █ ");
+        Console.WriteLine(@"  ████ █  █  █   █  █ ███  █     █ ");
+        Console.WriteLine();
+        Console.WriteLine(@"   ████ █  █ █  █ █  █ ████ █   ");
+        Console.WriteLine(@"    █   █  █ █  █ ██ █ █    █   ");
+        Console.WriteLine(@"    █   █  █ █  █ █ ██ ███  █   ");
+        Console.WriteLine(@"    █   █  █ █  █ █  █ █    █   ");
+        Console.WriteLine(@"    █   ███  ███  █  █ ████ ████");
+        Console.ResetColor();
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine(@"                              v1.0  Tunnel Agent");
+        Console.ResetColor();
+        Console.WriteLine();
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine($"  Client   :  {_settings.ClientId}");
+        Console.WriteLine($"  Port     :  {_settings.LocalPort}");
+        Console.WriteLine($"  Server   :  {_settings.ServerUrl}");
+        Console.ResetColor();
+        Console.WriteLine();
+    }
+
+    private void PrintSessionAuthBanner(SessionAuthPayload payload)
+    {
+        string sep = new string('─', 54);
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine($"  {sep}");
+        Console.WriteLine($"  Tunnel ready");
+        Console.ResetColor();
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine($"  Public URL   →  http://{_settings.ClientId}.{_settings.PublicDomain}/");
+        Console.WriteLine($"  Dashboard    →  {payload.DashboardUrl}");
+        Console.WriteLine($"  Local Port   →  {_settings.LocalPort}");
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine($"  {sep}");
+        Console.ResetColor();
+        Console.WriteLine();
+    }
+
+    private static void LogRequest(
+        string method, string path, int statusCode, long elapsedMs,
+        string? chaosRule, string? mockRule)
+    {
+        Console.ForegroundColor = statusCode < 300 ? ConsoleColor.Green
+                                : statusCode < 500 ? ConsoleColor.Yellow
+                                : ConsoleColor.Red;
+
+        Console.Write($"[{DateTime.Now:HH:mm:ss}] {method,-7}{path,-45}{statusCode}  {elapsedMs}ms");
+
+        if (chaosRule is not null || mockRule is not null)
+        {
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            if (chaosRule is not null) Console.Write($"  chaos:{chaosRule}");
+            if (mockRule is not null) Console.Write($"  mock:{mockRule}");
+        }
+
+        Console.WriteLine();
+        Console.ResetColor();
     }
 }

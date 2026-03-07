@@ -51,4 +51,38 @@ namespace EntropyTunnel.Core
             return (id, type, payload);
         }
     }
+
+    /// <summary>
+    /// Byte constants for control frames that travel on the same WebSocket as HTTP tunnel
+    /// traffic but are not tied to any specific request.
+    ///
+    /// Control frames use Guid.Empty (16 zero bytes) as the request-ID prefix so they are
+    /// unambiguously distinguishable from request-bound frames (0x10–0x12 server→client,
+    /// 0x01–0x03 client→server).
+    ///
+    /// Wire format: [16B: Guid.Empty][1B: type][4B: jsonLen][N B: UTF-8 JSON]
+    /// </summary>
+    public static class ControlFrame
+    {
+        /// <summary>
+        /// 0x20  Server -> Client.
+        /// Full rule snapshot for the receiving agent (SyncRulesPayload JSON).
+        /// Sent on connect and after any rule change.
+        /// </summary>
+        public const byte SyncRules = 0x20;
+
+        /// <summary>
+        /// 0x21  Client -> Server.
+        /// Completed request log entry (RequestLogEntry JSON).
+        /// RequestBodyPreview is truncated to 2 KB before transmission.
+        /// </summary>
+        public const byte LogEvent = 0x21;
+
+        /// <summary>
+        /// 0x22  Server -> Client.
+        /// Remote dashboard URL and session token (SessionAuthPayload JSON).
+        /// Sent immediately after the agent WebSocket is accepted.
+        /// </summary>
+        public const byte SessionAuth = 0x22;
+    }
 }

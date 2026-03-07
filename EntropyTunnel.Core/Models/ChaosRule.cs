@@ -1,4 +1,4 @@
-namespace EntropyTunnel.Client.Models;
+namespace EntropyTunnel.Core.Models;
 
 /// <summary>
 /// A per-path chaos rule that injects latency and/or errors for matching requests.

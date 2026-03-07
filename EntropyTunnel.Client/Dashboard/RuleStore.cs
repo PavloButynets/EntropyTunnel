@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
-using EntropyTunnel.Client.Models;
+using EntropyTunnel.Core.Models;
+using EntropyTunnel.Core.Payloads;
 
 namespace EntropyTunnel.Client.Dashboard;
 
@@ -103,5 +104,22 @@ public sealed class RuleStore
     public void ClearRequestLog()
     {
         while (_log.TryDequeue(out _)) { }
+    }
+
+    // Rule synchronisation (0x20 SyncRules)
+
+    /// <summary>
+    /// Atomically replaces all rules with the payload received in a 0x20 SyncRules frame.
+    /// </summary>
+    public void ApplySync(SyncRulesPayload payload)
+    {
+        _chaos.Clear();
+        foreach (var r in payload.ChaosRules) _chaos[r.Id] = r;
+
+        _mocks.Clear();
+        foreach (var r in payload.MockRules) _mocks[r.Id] = r;
+
+        _routing.Clear();
+        foreach (var r in payload.RoutingRules) _routing[r.Id] = r;
     }
 }

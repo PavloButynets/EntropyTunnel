@@ -63,8 +63,6 @@ public sealed class LocalForwarder : IPipelineStage
                 context.ResponseHeaders[header.Key] = header.Value.ToArray();
             }
 
-            _logger.LogInformation("[FWD] {Method} {Url} → {Status}",
-                context.Method, context.TargetUrl, context.StatusCode);
         }
         catch (HttpRequestException ex)
         {

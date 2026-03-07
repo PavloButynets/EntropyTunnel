@@ -1,4 +1,4 @@
-namespace EntropyTunnel.Client.Models;
+namespace EntropyTunnel.Core.Models;
 
 /// <summary>
 /// A rule that short-circuits the pipeline and returns a canned response
