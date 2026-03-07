@@ -13,4 +13,7 @@ public sealed record SessionAuthPayload
 
     /// <summary>Short-lived bearer token scoped to this agent session.</summary>
     public string Token { get; init; } = string.Empty;
+
+    /// <summary>Short password the user must enter on the Dashboard login form.</summary>
+    public string Password { get; init; } = string.Empty;
 }

@@ -8,7 +8,7 @@ services:
       ASPNETCORE_URLS: "http://+:8080"
       AllowedOrigins__0: "http://130.61.202.172"
       AllowedOrigins__1: "http://ui"
-      DashboardBaseUrl: "http://local130.61.202.172host"
+      DashboardBaseUrl: "http://130.61.202.172"
     ports:
       - "8080:8080"
     restart: unless-stopped

@@ -25,6 +25,7 @@ function agentUrl(path: string) {
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     ...init,
   });
@@ -34,6 +35,24 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
     throw new Error(`${res.status}: ${text}`);
   }
   return res.json() as Promise<T>;
+}
+
+// Auth
+export async function login(clientId: string, password: string): Promise<void> {
+  const res = await fetch(`${_apiBase}/api/auth/login`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ clientId, password }),
+  });
+  if (!res.ok) throw new Error(`${res.status}`);
+}
+
+export async function checkAuth(clientId: string): Promise<boolean> {
+  const res = await fetch(`${_apiBase}/api/agents/${clientId}/status`, {
+    credentials: "include",
+  });
+  return res.ok;
 }
 
 // Agents

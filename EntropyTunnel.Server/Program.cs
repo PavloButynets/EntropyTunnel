@@ -9,7 +9,8 @@ using EntropyTunnel.Core.Payloads;
 using EntropyTunnel.Server.Sse;
 using EntropyTunnel.Server.State;
 using Microsoft.Extensions.Primitives;
-
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -31,12 +32,32 @@ builder.Services.AddCors(opts =>
 builder.Services.ConfigureHttpJsonOptions(opts =>
     opts.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase);
 
+builder.Services.AddAuthentication("Cookies")
+    .AddCookie("Cookies", opts =>
+    {
+        opts.Cookie.HttpOnly = true;
+        opts.Cookie.SameSite = SameSiteMode.Strict;
+        opts.Events.OnRedirectToLogin = ctx =>
+        {
+            ctx.Response.StatusCode = 401;
+            return Task.CompletedTask;
+        };
+        opts.Events.OnRedirectToAccessDenied = ctx =>
+        {
+            ctx.Response.StatusCode = 403;
+            return Task.CompletedTask;
+        };
+    });
+builder.Services.AddAuthorization();
+
 // ── App ────────────────────────────────────────────────────────────────────────
 
 var app = builder.Build();
 
 app.UseWebSockets();
 app.UseCors();
+app.UseAuthentication();
+app.UseAuthorization();
 
 var _stateStore = app.Services.GetRequiredService<AgentStateStore>();
 var _sseMgr = app.Services.GetRequiredService<SseConnectionManager>();
@@ -51,6 +72,9 @@ var _pendingRequests = new ConcurrentDictionary<
 
 // Active body channels for in-flight streamed responses
 var _activeChannels = new ConcurrentDictionary<Guid, Channel<byte[]>>();
+
+// Per-agent passwords — generated on connect, validated at login
+var _agentPasswords = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
 // ── Helper: send a raw binary packet to a specific agent ───────────────────────
 
@@ -89,6 +113,13 @@ async Task SyncRulesToAgentAsync(string clientId)
     await SendToAgentAsync(clientId, ControlFrameBuilder.Build(ControlFrame.SyncRules, payload));
 }
 
+static string GeneratePassword()
+{
+    const string chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+    var bytes = System.Security.Cryptography.RandomNumberGenerator.GetBytes(6);
+    return new string(bytes.Select(b => chars[b % chars.Length]).ToArray());
+}
+
 // WebSocket tunnel endpoint
 
 app.Map("/tunnel", async (HttpContext context) =>
@@ -112,11 +143,13 @@ app.Map("/tunnel", async (HttpContext context) =>
     Console.WriteLine($"[Server] AGENT CONNECTED: {clientId}");
 
     // Send 0x22 SessionAuth immediately on connect
-    var token = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
+    var password = GeneratePassword();
+    _agentPasswords[clientId] = password;
     var authPayload = new SessionAuthPayload
     {
-        DashboardUrl = $"{dashboardBaseUrl}/dashboard/{clientId}?token={token}",
-        Token = token,
+        DashboardUrl = $"{dashboardBaseUrl}/dashboard/{clientId}?token={password}",
+        Token = password,
+        Password = password,
     };
     await SendToAgentAsync(clientId, ControlFrameBuilder.Build(ControlFrame.SessionAuth, authPayload));
 
@@ -228,6 +261,17 @@ var api = app.MapGroup("/api");
 
 api.MapGet("/ping", () => new { app = "EntropyTunnel.Server", version = "2.0" });
 
+api.MapPost("/auth/login", async (LoginRequest body, HttpContext ctx) =>
+{
+    if (!_agentPasswords.TryGetValue(body.ClientId, out var stored) || stored != body.Password)
+        return Results.StatusCode(401);
+
+    var claims = new[] { new Claim(ClaimTypes.Name, body.ClientId) };
+    var identity = new ClaimsIdentity(claims, "Cookies");
+    await ctx.SignInAsync("Cookies", new ClaimsPrincipal(identity));
+    return Results.Ok(new { clientId = body.ClientId });
+});
+
 api.MapGet("/agents", (AgentStateStore store) =>
 {
     var list = store.GetAll().Select(t => new
@@ -242,6 +286,19 @@ api.MapGet("/agents", (AgentStateStore store) =>
 
 
 var agentApi = api.MapGroup("/agents/{clientId}");
+
+agentApi.AddEndpointFilter(async (ctx, next) =>
+{
+    var authenticatedId = ctx.HttpContext.User.Identity?.Name;
+    if (string.IsNullOrEmpty(authenticatedId))
+        return Results.StatusCode(401);
+
+    var routeClientId = ctx.HttpContext.GetRouteValue("clientId") as string ?? "";
+    if (!authenticatedId.Equals(routeClientId, StringComparison.OrdinalIgnoreCase))
+        return Results.StatusCode(403);
+
+    return await next(ctx);
+});
 
 agentApi.MapGet("/status", (string clientId, AgentStateStore store) =>
 {
@@ -495,3 +552,5 @@ app.Run();
 
 /// <summary>Bundles the WebSocket and its send-serialization lock for one agent connection.</summary>
 record AgentConnection(WebSocket Socket, SemaphoreSlim Lock);
+
+record LoginRequest(string ClientId, string Password);

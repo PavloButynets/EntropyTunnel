@@ -1,0 +1,90 @@
+.overlay {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 40px 36px;
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.icon {
+  font-size: 32px;
+}
+
+.title {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: -0.4px;
+}
+
+.sub {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+  text-align: center;
+}
+
+.clientId {
+  font-family: var(--mono);
+  color: var(--accent-h);
+  background: var(--surface2);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 9px 12px;
+  font-size: 14px;
+  font-family: var(--mono);
+  color: var(--text);
+  outline: none;
+}
+
+.input:focus {
+  border-color: var(--accent-h);
+}
+
+.error {
+  font-size: 12px;
+  color: var(--red, #f87171);
+  margin: 0;
+}
+
+.btn {
+  width: 100%;
+  padding: 10px;
+  background: var(--accent-h);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.btn:not(:disabled):hover {
+  opacity: 0.88;
+}

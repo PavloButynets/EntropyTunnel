@@ -319,6 +319,10 @@ public sealed class TunnelService : BackgroundService
         Console.ForegroundColor = ConsoleColor.White;
         Console.WriteLine($"  Public URL   →  http://{_settings.ClientId}.{_settings.PublicDomain}/");
         Console.WriteLine($"  Dashboard    →  {payload.DashboardUrl}");
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.WriteLine($"  Password     →  {payload.Password}");
+        Console.ResetColor();
+        Console.ForegroundColor = ConsoleColor.White;
         Console.WriteLine($"  Local Port   →  {_settings.LocalPort}");
         Console.ForegroundColor = ConsoleColor.Green;
         Console.WriteLine($"  {sep}");
