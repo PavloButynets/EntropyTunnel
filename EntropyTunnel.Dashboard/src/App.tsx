@@ -53,17 +53,6 @@ export default function App() {
   const [log, setLog] = useState<RequestLogEntry[]>([]);
 
   useEffect(() => {
-    const load = () =>
-      api
-        .getAgents()
-        .then((d) => setAgents(Array.isArray(d) ? d : []))
-        .catch(() => {});
-    load();
-    const id = setInterval(load, 5_000);
-    return () => clearInterval(id);
-  }, []);
-
-  useEffect(() => {
     const establish = async () => {
       if (initialToken) {
         try {
@@ -84,6 +73,20 @@ export default function App() {
     await api.login(password);
     setAuthState("authenticated");
   }
+
+  useEffect(() => {
+    if (authState !== "authenticated") return;
+
+    const load = () =>
+      api
+        .getAgents()
+        .then((d) => setAgents(Array.isArray(d) ? d : []))
+        .catch(() => {});
+
+    load();
+    const id = setInterval(load, 5_000);
+    return () => clearInterval(id);
+  }, [authState]);
 
   const selectAgent = useCallback((clientId: string) => {
     setSelectedClientId(clientId);
@@ -158,15 +161,14 @@ export default function App() {
     return () => es.close();
   }, [authState, selectedClientId]);
 
-  // Account overview — always public, shown immediately even while auth resolves.
-  if (!routeClientId) {
-    return <AccountOverview agents={agents} />;
-  }
-
   if (authState === "checking") return null;
 
   if (authState === "unauthenticated") {
     return <LoginForm onLogin={handleLogin} />;
+  }
+
+  if (!routeClientId) {
+    return <AccountOverview agents={agents} />;
   }
 
   const selectedAgent =

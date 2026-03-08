@@ -276,9 +276,12 @@ api.MapPost("/auth/login", async (LoginRequest body, HttpContext ctx) =>
     return Results.Ok(new { accountId = match.Key });
 });
 
-api.MapGet("/agents", (AgentStateStore store) =>
+api.MapGet("/agents", (HttpContext ctx, AgentStateStore store) =>
 {
-    var list = store.GetAll().Select(t => new
+    var accountId = ctx.User.Identity?.Name;
+    if (string.IsNullOrEmpty(accountId)) return Results.StatusCode(401);
+
+    var list = store.GetByAccount(accountId).Select(t => new
     {
         clientId = t.ClientId,
         isConnected = t.State.IsConnected,
