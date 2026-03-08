@@ -80,7 +80,7 @@ public sealed class TunnelService : BackgroundService
 
     private async Task RunConnectionAsync(CancellationToken ct)
     {
-        string serverUrl = $"{_settings.ServerUrl}?clientId={_settings.ClientId}";
+        string serverUrl = $"{_settings.ServerUrl}?clientId={_settings.ClientId}&accountId={_settings.AccountId}";
 
         using var ws = new ClientWebSocket();
         ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(15);
@@ -317,12 +317,13 @@ public sealed class TunnelService : BackgroundService
         Console.WriteLine($"  Tunnel ready");
         Console.ResetColor();
         Console.ForegroundColor = ConsoleColor.White;
-        Console.WriteLine($"  Public URL   →  http://{_settings.ClientId}.{_settings.PublicDomain}/");
+        Console.WriteLine($"  Tunnel URL   →  http://{_settings.ClientId}.{_settings.PublicDomain}/");
         Console.WriteLine($"  Dashboard    →  {payload.DashboardUrl}");
         Console.ForegroundColor = ConsoleColor.Yellow;
         Console.WriteLine($"  Password     →  {payload.Password}");
         Console.ResetColor();
-        Console.ForegroundColor = ConsoleColor.White;
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine($"  Account      →  {_settings.AccountId}");
         Console.WriteLine($"  Local Port   →  {_settings.LocalPort}");
         Console.ForegroundColor = ConsoleColor.Green;
         Console.WriteLine($"  {sep}");

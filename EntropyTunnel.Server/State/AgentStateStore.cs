@@ -24,4 +24,11 @@ public sealed class AgentStateStore
     /// <summary>Snapshot of all agent states ordered by clientId.</summary>
     public IEnumerable<(string ClientId, AgentState State)> GetAll() =>
         _agents.OrderBy(kvp => kvp.Key).Select(kvp => (kvp.Key, kvp.Value));
+
+    /// <summary>Returns all agents that belong to a specific account, ordered by clientId.</summary>
+    public IEnumerable<(string ClientId, AgentState State)> GetByAccount(string accountId) =>
+        _agents
+            .Where(kvp => kvp.Value.AccountId.Equals(accountId, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(kvp => kvp.Key)
+            .Select(kvp => (kvp.Key, kvp.Value));
 }

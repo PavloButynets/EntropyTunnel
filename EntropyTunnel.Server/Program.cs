@@ -73,8 +73,8 @@ var _pendingRequests = new ConcurrentDictionary<
 // Active body channels for in-flight streamed responses
 var _activeChannels = new ConcurrentDictionary<Guid, Channel<byte[]>>();
 
-// Per-agent passwords — generated on connect, validated at login
-var _agentPasswords = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+// Per-account passwords — generated on first connect for an account, reused for subsequent agents
+var _accountPasswords = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
 // ── Helper: send a raw binary packet to a specific agent ───────────────────────
 
@@ -142,12 +142,16 @@ app.Map("/tunnel", async (HttpContext context) =>
 
     Console.WriteLine($"[Server] AGENT CONNECTED: {clientId}");
 
-    // Send 0x22 SessionAuth immediately on connect
-    var password = GeneratePassword();
-    _agentPasswords[clientId] = password;
+    // Associate agent with its account
+    string accountIdRaw = context.Request.Query["accountId"].ToString();
+    string agentAccountId = !string.IsNullOrEmpty(accountIdRaw) ? accountIdRaw : clientId;
+    state.AccountId = agentAccountId;
+
+    // Send 0x22 SessionAuth immediately on connect - one shared password per account
+    var password = _accountPasswords.GetOrAdd(agentAccountId, _ => GeneratePassword());
     var authPayload = new SessionAuthPayload
     {
-        DashboardUrl = $"{dashboardBaseUrl}/dashboard/{clientId}?token={password}",
+        DashboardUrl = $"{dashboardBaseUrl}/dashboard?token={password}",
         Token = password,
         Password = password,
     };
@@ -263,13 +267,13 @@ api.MapGet("/ping", () => new { app = "EntropyTunnel.Server", version = "2.0" })
 
 api.MapPost("/auth/login", async (LoginRequest body, HttpContext ctx) =>
 {
-    if (!_agentPasswords.TryGetValue(body.ClientId, out var stored) || stored != body.Password)
-        return Results.StatusCode(401);
+    var match = _accountPasswords.FirstOrDefault(kvp => kvp.Value == body.Password);
+    if (match.Key is null) return Results.StatusCode(401);
 
-    var claims = new[] { new Claim(ClaimTypes.Name, body.ClientId) };
+    var claims = new[] { new Claim(ClaimTypes.Name, match.Key) }; // Name = accountId
     var identity = new ClaimsIdentity(claims, "Cookies");
     await ctx.SignInAsync("Cookies", new ClaimsPrincipal(identity));
-    return Results.Ok(new { clientId = body.ClientId });
+    return Results.Ok(new { accountId = match.Key });
 });
 
 api.MapGet("/agents", (AgentStateStore store) =>
@@ -284,17 +288,26 @@ api.MapGet("/agents", (AgentStateStore store) =>
     return Results.Ok(list);
 });
 
+// Lightweight auth probe — returns accountId from cookie or 401
+api.MapGet("/auth/me", (HttpContext ctx) =>
+{
+    var accountId = ctx.User.Identity?.Name;
+    if (string.IsNullOrEmpty(accountId)) return Results.StatusCode(401);
+    return Results.Ok(new { accountId });
+});
+
 
 var agentApi = api.MapGroup("/agents/{clientId}");
 
 agentApi.AddEndpointFilter(async (ctx, next) =>
 {
-    var authenticatedId = ctx.HttpContext.User.Identity?.Name;
-    if (string.IsNullOrEmpty(authenticatedId))
+    var authenticatedAccountId = ctx.HttpContext.User.Identity?.Name;
+    if (string.IsNullOrEmpty(authenticatedAccountId))
         return Results.StatusCode(401);
 
     var routeClientId = ctx.HttpContext.GetRouteValue("clientId") as string ?? "";
-    if (!authenticatedId.Equals(routeClientId, StringComparison.OrdinalIgnoreCase))
+    var agentState = _stateStore.Get(routeClientId);
+    if (agentState is null || !agentState.AccountId.Equals(authenticatedAccountId, StringComparison.OrdinalIgnoreCase))
         return Results.StatusCode(403);
 
     return await next(ctx);
@@ -553,4 +566,4 @@ app.Run();
 /// <summary>Bundles the WebSocket and its send-serialization lock for one agent connection.</summary>
 record AgentConnection(WebSocket Socket, SemaphoreSlim Lock);
 
-record LoginRequest(string ClientId, string Password);
+record LoginRequest(string Password);

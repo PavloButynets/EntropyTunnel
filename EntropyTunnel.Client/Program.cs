@@ -1,3 +1,4 @@
+using System.Text.Json;
 using EntropyTunnel.Client.Configuration;
 using EntropyTunnel.Client.Dashboard;
 using EntropyTunnel.Client.Multiplexer;
@@ -23,6 +24,27 @@ else if (args.Length != 0)
     return;
 }
 
+var accountDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".entropytunnel");
+var accountFile = Path.Combine(accountDir, "account.json");
+
+string accountId;
+if (File.Exists(accountFile))
+{
+    try
+    {
+        var cfg = JsonSerializer.Deserialize<AccountConfig>(File.ReadAllText(accountFile));
+        accountId = cfg?.AccountId is { Length: > 0 } id ? id : Guid.NewGuid().ToString();
+    }
+    catch { accountId = Guid.NewGuid().ToString(); }
+}
+else
+{
+    accountId = Guid.NewGuid().ToString();
+    Directory.CreateDirectory(accountDir);
+    File.WriteAllText(accountFile, JsonSerializer.Serialize(new AccountConfig(accountId)));
+}
+
+
 var host = Host.CreateDefaultBuilder(args)
     .ConfigureAppConfiguration((ctx, cfg) =>
     {
@@ -41,6 +63,7 @@ var host = Host.CreateDefaultBuilder(args)
 
         if (localPort > 0) settings.LocalPort = localPort;
         if (clientId is not null) settings.ClientId = clientId;
+        settings.AccountId = accountId;
 
         services.AddSingleton(settings);
         services.AddSingleton<RuleStore>();
@@ -59,3 +82,5 @@ var host = Host.CreateDefaultBuilder(args)
     .Build();
 
 await host.RunAsync();
+
+record AccountConfig(string AccountId);

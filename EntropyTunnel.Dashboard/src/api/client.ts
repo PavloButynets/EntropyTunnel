@@ -38,18 +38,18 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 // Auth
-export async function login(clientId: string, password: string): Promise<void> {
+export async function login(password: string): Promise<void> {
   const res = await fetch(`${_apiBase}/api/auth/login`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ clientId, password }),
+    body: JSON.stringify({ password }),
   });
   if (!res.ok) throw new Error(`${res.status}`);
 }
 
-export async function checkAuth(clientId: string): Promise<boolean> {
-  const res = await fetch(`${_apiBase}/api/agents/${clientId}/status`, {
+export async function checkAuth(): Promise<boolean> {
+  const res = await fetch(`${_apiBase}/api/auth/me`, {
     credentials: "include",
   });
   return res.ok;

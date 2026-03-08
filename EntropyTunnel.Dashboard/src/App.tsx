@@ -5,6 +5,7 @@ import { MockRules } from "./components/MockRules";
 import { RoutingRules } from "./components/RoutingRules";
 import { RequestLog } from "./components/RequestLog";
 import { LoginForm } from "./components/LoginForm";
+import { AccountOverview } from "./components/AccountOverview";
 import * as api from "./api/client";
 import type {
   AgentInfo,
@@ -23,35 +24,66 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "log", label: "Request Log", icon: "📋" },
 ];
 
-function getRouteClientId(): string | null {
-  const match = window.location.pathname.match(/^\/dashboard\/([^/?]+)/);
-  return match ? match[1] : null;
-}
+const routeClientId: string | null = (() => {
+  const m = window.location.pathname.match(/^\/dashboard\/([^/?#]+)/);
+  return m ? m[1] : null;
+})();
 
-function getTokenParam(): string {
-  return new URLSearchParams(window.location.search).get("token") ?? "";
+const initialToken: string =
+  new URLSearchParams(window.location.search).get("token") ?? "";
+
+if (routeClientId) {
+  api.setActiveAgent(routeClientId);
 }
 
 type AuthState = "checking" | "unauthenticated" | "authenticated";
 
 export default function App() {
+  const [authState, setAuthState] = useState<AuthState>("checking");
+
+  const [agents, setAgents] = useState<AgentInfo[]>([]);
+
   const [tab, setTab] = useState<Tab>("chaos");
+  const [selectedClientId, setSelectedClientId] = useState<string>(
+    routeClientId ?? "",
+  );
   const [chaos, setChaos] = useState<ChaosRule[]>([]);
   const [mocks, setMocks] = useState<MockRule[]>([]);
   const [routing, setRouting] = useState<RoutingRule[]>([]);
   const [log, setLog] = useState<RequestLogEntry[]>([]);
 
-  const [routeClientId] = useState<string | null>(getRouteClientId);
-  const [initialToken] = useState<string>(getTokenParam);
+  useEffect(() => {
+    const load = () =>
+      api
+        .getAgents()
+        .then((d) => setAgents(Array.isArray(d) ? d : []))
+        .catch(() => {});
+    load();
+    const id = setInterval(load, 5_000);
+    return () => clearInterval(id);
+  }, []);
 
-  const [authState, setAuthState] = useState<AuthState>(
-    routeClientId ? "checking" : "authenticated",
-  );
+  useEffect(() => {
+    const establish = async () => {
+      if (initialToken) {
+        try {
+          await api.login(initialToken);
+          setAuthState("authenticated");
+          return;
+        } catch {
+          // Token invalid or expired - fall through to cookie check.
+        }
+      }
+      const ok = await api.checkAuth();
+      setAuthState(ok ? "authenticated" : "unauthenticated");
+    };
+    establish();
+  }, []);
 
-  const [agents, setAgents] = useState<AgentInfo[]>([]);
-  const [selectedClientId, setSelectedClientId] = useState<string>(
-    routeClientId ?? "",
-  );
+  async function handleLogin(password: string) {
+    await api.login(password);
+    setAuthState("authenticated");
+  }
 
   const selectAgent = useCallback((clientId: string) => {
     setSelectedClientId(clientId);
@@ -62,56 +94,41 @@ export default function App() {
     setLog([]);
   }, []);
 
-  useEffect(() => {
-    if (!routeClientId) return;
-    api.setActiveAgent(routeClientId);
-    api.checkAuth(routeClientId).then((ok) => {
-      setAuthState(ok ? "authenticated" : "unauthenticated");
-    });
-  }, [routeClientId]);
-
-  async function handleLogin(password: string) {
-    await api.login(routeClientId!, password);
-    setAuthState("authenticated");
-    selectAgent(routeClientId!);
-  }
-
-  // Data fetching
   const refreshChaos = useCallback(async () => {
     try {
-      setChaos(await api.getChaosRules());
+      const data = await api.getChaosRules();
+      setChaos(Array.isArray(data) ? data : []);
     } catch {
       /* ignore */
     }
   }, []);
-
   const refreshMocks = useCallback(async () => {
     try {
-      setMocks(await api.getMockRules());
+      const data = await api.getMockRules();
+      setMocks(Array.isArray(data) ? data : []);
     } catch {
       /* ignore */
     }
   }, []);
-
   const refreshRouting = useCallback(async () => {
     try {
-      setRouting(await api.getRoutingRules());
+      const data = await api.getRoutingRules();
+      setRouting(Array.isArray(data) ? data : []);
     } catch {
       /* ignore */
     }
   }, []);
-
   const refreshLog = useCallback(async () => {
     try {
-      setLog(await api.getRequestLog());
+      const data = await api.getRequestLog();
+      setLog(Array.isArray(data) ? data : []);
     } catch {
       /* ignore */
     }
   }, []);
 
-  // Load rules for the active tab whenever tab or selected agent changes
   useEffect(() => {
-    if (!selectedClientId || authState !== "authenticated") return;
+    if (authState !== "authenticated" || !selectedClientId) return;
     if (tab === "chaos") refreshChaos();
     if (tab === "mocks") refreshMocks();
     if (tab === "routing") refreshRouting();
@@ -126,67 +143,40 @@ export default function App() {
     refreshLog,
   ]);
 
-  // Agent list polling: every 5 s (only in multi-agent mode)
+  // ── SSE live log ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (routeClientId) return; // locked mode uses only one agent
-    const refresh = async () => {
-      try {
-        setAgents(await api.getAgents());
-      } catch {
-        /* server not ready */
-      }
-    };
-    refresh();
-    const id = setInterval(refresh, 5_000);
-    return () => clearInterval(id);
-  }, [routeClientId]);
-
-  // Auto-select the first agent on initial load (multi-agent mode only)
-  useEffect(() => {
-    if (routeClientId) return;
-    if (agents.length > 0 && !selectedClientId) {
-      selectAgent(agents[0].clientId);
-    }
-  }, [agents, selectedClientId, routeClientId, selectAgent]);
-
-  // SSE: live log stream for the selected agent (only when authenticated)
-  useEffect(() => {
-    if (!selectedClientId || authState !== "authenticated") return;
-
+    if (authState !== "authenticated" || !selectedClientId) return;
     const es = new EventSource(api.getEventsUrl(), { withCredentials: true });
-
     es.onmessage = (ev) => {
       try {
         const entry: RequestLogEntry = JSON.parse(ev.data as string);
         setLog((prev) => [entry, ...prev].slice(0, 1_000));
       } catch {
-        /* ignore malformed events */
+        /* ignore */
       }
     };
-
     return () => es.close();
-  }, [selectedClientId, authState]);
+  }, [authState, selectedClientId]);
+
+  // Account overview — always public, shown immediately even while auth resolves.
+  if (!routeClientId) {
+    return <AccountOverview agents={agents} />;
+  }
+
+  if (authState === "checking") return null;
+
+  if (authState === "unauthenticated") {
+    return <LoginForm onLogin={handleLogin} />;
+  }
 
   const selectedAgent =
     agents.find((a) => a.clientId === selectedClientId) ?? null;
-
-  if (routeClientId && authState !== "authenticated") {
-    if (authState === "checking") return null; // brief flicker prevention
-
-    return (
-      <LoginForm
-        clientId={routeClientId}
-        initialPassword={initialToken}
-        onLogin={handleLogin}
-      />
-    );
-  }
 
   return (
     <div className={styles.app}>
       <StatusBar
         selectedAgent={selectedAgent}
-        agents={routeClientId ? [] : agents}
+        agents={agents}
         selectedClientId={selectedClientId}
         onSelectAgent={selectAgent}
       />

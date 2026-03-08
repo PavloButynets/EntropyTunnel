@@ -2,12 +2,11 @@ import { FormEvent, useState } from "react";
 import styles from "./LoginForm.module.css";
 
 interface Props {
-  clientId: string;
   initialPassword?: string;
   onLogin: (password: string) => Promise<void>;
 }
 
-export function LoginForm({ clientId, initialPassword = "", onLogin }: Props) {
+export function LoginForm({ initialPassword = "", onLogin }: Props) {
   const [password, setPassword] = useState(initialPassword);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -30,14 +29,12 @@ export function LoginForm({ clientId, initialPassword = "", onLogin }: Props) {
       <form className={styles.card} onSubmit={handleSubmit}>
         <div className={styles.icon}>⚡</div>
         <h1 className={styles.title}>EntropyTunnel</h1>
-        <p className={styles.sub}>
-          Enter password for <code className={styles.clientId}>{clientId}</code>
-        </p>
+        <p className={styles.sub}>Enter your account password to continue</p>
 
         <input
           className={styles.input}
           type="password"
-          placeholder="Password"
+          placeholder="Account password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           autoFocus

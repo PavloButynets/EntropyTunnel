@@ -66,6 +66,7 @@ public sealed class AgentState
     /// <summary>True while the agent's WebSocket is open.</summary>
     public volatile bool IsConnected;
 
+    public string AccountId { get; set; } = string.Empty;
     public string PublicUrl { get; set; } = string.Empty;
     public DateTimeOffset? ConnectedAt { get; set; }
 }

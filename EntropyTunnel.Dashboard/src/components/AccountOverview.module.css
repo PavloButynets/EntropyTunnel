@@ -1,0 +1,131 @@
+.page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 40px 24px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 36px;
+}
+
+.headerIcon {
+  font-size: 36px;
+}
+
+.title {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 2px;
+  letter-spacing: -0.4px;
+}
+
+.subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+  text-decoration: none;
+  color: var(--text);
+  position: relative;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.card:hover {
+  border-color: var(--accent-h);
+  background: var(--surface2);
+}
+
+.cardTop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.connected {
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+}
+
+.disconnected {
+  background: var(--text-muted);
+}
+
+.clientId {
+  font-weight: 600;
+  font-size: 15px;
+  font-family: var(--mono);
+}
+
+.publicUrl {
+  font-size: 12px;
+  color: var(--accent-h);
+  font-family: var(--mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.since {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.arrow {
+  position: absolute;
+  right: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 16px;
+  transition: color 0.15s, transform 0.15s;
+}
+
+.card:hover .arrow {
+  color: var(--accent-h);
+  transform: translateY(-50%) translateX(3px);
+}
+
+.empty {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.emptyHint {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.code {
+  font-family: var(--mono);
+  background: var(--surface2);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--text);
+}
