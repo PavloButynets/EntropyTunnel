@@ -6,9 +6,11 @@ services:
     environment:
       URLS: "http://+:8080"
       ASPNETCORE_URLS: "http://+:8080"
-      AllowedOrigins__0: "http://130.61.202.172"
-      AllowedOrigins__1: "http://ui"
-      DashboardBaseUrl: "http://130.61.202.172"
+      AllowedOrigins__0: "http://entropy-tunnel.xyz"
+      AllowedOrigins__1: "https://entropy-tunnel.xyz"
+      AllowedOrigins__2: "http://130.61.202.172"
+      AllowedOrigins__3: "http://ui"
+      DashboardBaseUrl: "http://entropy-tunnel.xyz"
     ports:
       - "8080:8080"
     restart: unless-stopped
