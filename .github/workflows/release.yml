@@ -29,18 +29,18 @@ jobs:
 
       - name: 🚀 Publish macOS
         run: dotnet publish EntropyTunnel.Client/EntropyTunnel.Client.csproj -c Release -r osx-arm64 --self-contained true -p:PublishSingleFile=true -o ./publish/mac-arm
-      - name: 🏷️ Rename Mac and Linux binaries
+      - name: 🏷️ Rename binaries
         run: |
-          mv ./publish/linux/EntropyTunnel.Client ./publish/linux/entropy-linux-amd64
-          mv ./publish/mac-arm/EntropyTunnel.Client ./publish/mac-arm/entropy-darwin-arm64
+          mv ./publish/linux/EntropyTunnel.Client ./publish/linux/entropy-tunnel-linux-x64
+          mv ./publish/mac-arm/EntropyTunnel.Client ./publish/mac-arm/entropy-tunnel-darwin-arm64
+          mv ./publish/win/EntropyTunnel.Client.exe ./publish/win/entropy-tunnel-win-x64.exe
 
       - name: 📦 Create GitHub Release and Upload ALL Assets
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            ./publish/win/EntropyTunnel.Client.exe
-            ./publish/linux/entropy-linux-amd64
-            ./publish/mac-arm/entropy-darwin-arm64
-            ./publish/mac-intel/entropy-darwin-amd64
+            ./publish/win/entropy-tunnel-win-x64.exe
+            ./publish/linux/entropy-tunnel-linux-x64
+            ./publish/mac-arm/entropy-tunnel-darwin-arm64
           name: Release ${{ github.ref_name }}
           generate_release_notes: true
