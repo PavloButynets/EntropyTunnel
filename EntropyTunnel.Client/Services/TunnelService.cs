@@ -317,7 +317,7 @@ public sealed class TunnelService : BackgroundService
         Console.WriteLine($"  Tunnel ready");
         Console.ResetColor();
         Console.ForegroundColor = ConsoleColor.White;
-        Console.WriteLine($"  Tunnel URL   →  http://{_settings.ClientId}.{_settings.PublicDomain}/");
+        Console.WriteLine($"  Tunnel URL   →  https://{_settings.ClientId}.{_settings.PublicDomain}/");
         Console.WriteLine($"  Dashboard    →  {payload.DashboardUrl}");
         Console.ForegroundColor = ConsoleColor.Yellow;
         Console.WriteLine($"  Password     →  {payload.Password}");

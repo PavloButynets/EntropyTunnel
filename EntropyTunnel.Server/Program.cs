@@ -473,7 +473,7 @@ app.Map("{*path}", async (HttpContext context, string? path) =>
     string clientId = host.Split('.')[0];
 
     if (char.IsDigit(clientId[0]) || clientId == "localhost")
-        return Results.Ok($"Entropy Tunnel v2.0. Usage: http://<client-id>.{context.Request.Host.Value}/");
+        return Results.Ok($"Entropy Tunnel v2.0. Usage: https://<client-id>.{context.Request.Host.Value}/");
 
     if (!_connections.TryGetValue(clientId, out var conn) || conn.Socket.State != WebSocketState.Open)
         return Results.Content($"Tunnel '{clientId}' is offline.", "text/plain", Encoding.UTF8, 404);
