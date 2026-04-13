@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Channels;
 using EntropyTunnel.Core;
 using EntropyTunnel.Core.Models;
@@ -30,7 +31,11 @@ builder.Services.AddCors(opts =>
          .AllowAnyHeader()));
 
 builder.Services.ConfigureHttpJsonOptions(opts =>
-    opts.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase);
+{
+    opts.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+    // Enum values should use their actual names (Uniform, Gaussian, etc.), not camelCase
+    opts.SerializerOptions.Converters.Add(new JsonStringEnumConverter(namingPolicy: null, allowIntegerValues: true));
+});
 
 builder.Services.AddAuthentication("Cookies")
     .AddCookie("Cookies", opts =>
@@ -466,9 +471,11 @@ agentApi.MapGet("/events", async (string clientId, HttpContext ctx, SseConnectio
     }
 });
 
-
 app.Map("{*path}", async (HttpContext context, string? path) =>
 {
+    var startTime = DateTimeOffset.UtcNow;
+    var startStopwatch = System.Diagnostics.Stopwatch.StartNew();
+
     string host = context.Request.Host.Host;
     string clientId = host.Split('.')[0];
 
@@ -477,6 +484,9 @@ app.Map("{*path}", async (HttpContext context, string? path) =>
 
     if (!_connections.TryGetValue(clientId, out var conn) || conn.Socket.State != WebSocketState.Open)
         return Results.Content($"Tunnel '{clientId}' is offline.", "text/plain", Encoding.UTF8, 404);
+
+    var agentState = _stateStore.Get(clientId);
+    var accountId = agentState?.AccountId ?? "unknown";
 
     var requestId = Guid.NewGuid();
     var tcs = new TaskCompletionSource<(string, int, ChannelReader<byte[]>, Dictionary<string, string[]>)>();

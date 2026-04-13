@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.13.35828.75 d17.13
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EntropyTunnel.Client", "EntropyTunnel\EntropyTunnel.Client.csproj", "{F90A7DDB-CE41-4800-9E76-F8B71628AD29}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EntropyTunnel.Client", "EntropyTunnel.Client\EntropyTunnel.Client.csproj", "{F90A7DDB-CE41-4800-9E76-F8B71628AD29}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EntropyTunnel.Core", "EntropyTunnel.Core\EntropyTunnel.Core.csproj", "{28E33FD7-82EF-4CDD-8F50-3EB620D46166}"
 EndProject

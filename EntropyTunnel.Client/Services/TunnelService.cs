@@ -3,7 +3,7 @@ using System.Text;
 using System.Collections.Concurrent;
 using System.Text.Json;
 using EntropyTunnel.Client.Configuration;
-using EntropyTunnel.Client.Dashboard;
+using EntropyTunnel.Client.State;
 using EntropyTunnel.Core;
 using EntropyTunnel.Core.Models;
 using EntropyTunnel.Core.Payloads;

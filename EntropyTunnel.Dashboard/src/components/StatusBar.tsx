@@ -1,21 +1,29 @@
-import type { AgentInfo } from '../types'
-import styles from './StatusBar.module.css'
+import { Zap } from "lucide-react";
+import type { AgentInfo } from "../types";
+import styles from "./StatusBar.module.css";
 
 interface Props {
-  selectedAgent: AgentInfo | null
-  agents: AgentInfo[]
-  selectedClientId: string
-  onSelectAgent: (clientId: string) => void
+  selectedAgent: AgentInfo | null;
+  agents: AgentInfo[];
+  selectedClientId: string;
+  onSelectAgent: (clientId: string) => void;
 }
 
-export function StatusBar({ selectedAgent, agents, selectedClientId, onSelectAgent }: Props) {
-  const connected = selectedAgent?.isConnected ?? false
-  const showSwitcher = agents.length > 1
+export function StatusBar({
+  selectedAgent,
+  agents,
+  selectedClientId,
+  onSelectAgent,
+}: Props) {
+  const connected = selectedAgent?.isConnected ?? false;
+  const showSwitcher = agents.length > 1;
 
   return (
     <header className={styles.bar}>
       <div className={styles.logo}>
-        <span className={styles.logoIcon}>⚡</span>
+        <span className={styles.logoIcon}>
+          <Zap />
+        </span>
         <span className={styles.logoText}>EntropyTunnel</span>
         <span className={styles.logoSub}>Inspector</span>
       </div>
@@ -41,23 +49,25 @@ export function StatusBar({ selectedAgent, agents, selectedClientId, onSelectAge
             <select
               className={styles.agentSelect}
               value={selectedClientId}
-              onChange={e => onSelectAgent(e.target.value)}
+              onChange={(e) => onSelectAgent(e.target.value)}
             >
-              {agents.map(a => (
+              {agents.map((a) => (
                 <option key={a.clientId} value={a.clientId}>
                   {a.clientId}
-                  {a.isConnected ? ' ●' : ' ○'}
+                  {a.isConnected ? " ●" : " ○"}
                 </option>
               ))}
             </select>
           </div>
         )}
 
-        <span className={`${styles.dot} ${connected ? styles.connected : styles.disconnected}`} />
+        <span
+          className={`${styles.dot} ${connected ? styles.connected : styles.disconnected}`}
+        />
         <span className={styles.statusText}>
-          {connected ? 'Connected' : 'Disconnected'}
+          {connected ? "Connected" : "Disconnected"}
         </span>
       </div>
     </header>
-  )
+  );
 }

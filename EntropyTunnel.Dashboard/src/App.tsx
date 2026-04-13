@@ -1,4 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
+import {
+  Zap,
+  Drama,
+  GitFork,
+  ClipboardList,
+  type LucideIcon,
+} from "lucide-react";
 import { StatusBar } from "./components/StatusBar";
 import { ChaosRules } from "./components/ChaosRules";
 import { MockRules } from "./components/MockRules";
@@ -17,11 +24,11 @@ import type {
 } from "./types";
 import styles from "./App.module.css";
 
-const TABS: { id: Tab; label: string; icon: string }[] = [
-  { id: "chaos", label: "Chaos Rules", icon: "⚡" },
-  { id: "mocks", label: "Mocks", icon: "🎭" },
-  { id: "routing", label: "Routing", icon: "🔀" },
-  { id: "log", label: "Request Log", icon: "📋" },
+const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
+  { id: "chaos", label: "Chaos Rules", icon: Zap },
+  { id: "mocks", label: "Mocks", icon: Drama },
+  { id: "routing", label: "Routing", icon: GitFork },
+  { id: "log", label: "Request Log", icon: ClipboardList },
 ];
 
 const routeClientId: string | null = (() => {
@@ -77,14 +84,17 @@ export default function App() {
   useEffect(() => {
     if (authState !== "authenticated") return;
 
-    const load = () =>
-      api
-        .getAgents()
-        .then((d) => setAgents(Array.isArray(d) ? d : []))
-        .catch(() => {});
+    const load = async () => {
+      try {
+        const data = await api.getAgents();
+        setAgents(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.error("[agents] load failed:", err);
+      }
+    };
 
     load();
-    const id = setInterval(load, 5_000);
+    const id = setInterval(() => load(), 5_000);
     return () => clearInterval(id);
   }, [authState]);
 
@@ -96,6 +106,12 @@ export default function App() {
     setRouting([]);
     setLog([]);
   }, []);
+  // Auto-select first agent when agents are available
+  useEffect(() => {
+    if (!selectedClientId && agents.length > 0) {
+      selectAgent(agents[0].clientId);
+    }
+  }, [agents, selectedClientId, selectAgent]);
 
   const refreshChaos = useCallback(async () => {
     try {
@@ -146,7 +162,7 @@ export default function App() {
     refreshLog,
   ]);
 
-  // ── SSE live log ─────────────────────────────────────────────────────────────
+  // SSE live log
   useEffect(() => {
     if (authState !== "authenticated" || !selectedClientId) return;
     const es = new EventSource(api.getEventsUrl(), { withCredentials: true });
@@ -184,16 +200,19 @@ export default function App() {
       />
 
       <nav className={styles.tabs}>
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            className={`${styles.tab} ${tab === t.id ? styles.active : ""}`}
-            onClick={() => setTab(t.id)}
-          >
-            <span>{t.icon}</span>
-            <span>{t.label}</span>
-          </button>
-        ))}
+        {TABS.map((t) => {
+          const Icon = t.icon;
+          return (
+            <button
+              key={t.id}
+              className={`${styles.tab} ${tab === t.id ? styles.active : ""}`}
+              onClick={() => setTab(t.id)}
+            >
+              <Icon size={16} strokeWidth={1.5} />
+              <span>{t.label}</span>
+            </button>
+          );
+        })}
       </nav>
 
       <main className={styles.main}>

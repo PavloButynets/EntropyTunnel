@@ -62,7 +62,7 @@ MockEngine → ChaosEngine → RequestRouter → LocalForwarder
 | Stage | Behaviour |
 |---|---|
 | **MockEngine** | Checks mock rules. On match: returns the configured response and stops the chain. |
-| **ChaosEngine** | Checks chaos rules. Injects latency (`latencyMs ± jitterMs`). With probability `errorRate` returns a synthetic error and stops the chain. |
+| **ChaosEngine** | Checks chaos rules. Injects latency using configurable distributions (Uniform, Gaussian, Bimodal, Exponential). Injects errors randomly or in Poisson bursts. Sets `IsHandled = true` if an error is injected. |
 | **RequestRouter** | Resolves `TargetUrl`. Checks routing rules ordered by priority; falls back to `http://localhost:<localPort>`. Never short-circuits. |
 | **LocalForwarder** | Makes the real HTTP request. Forwards all headers using `TryAddWithoutValidation` — .NET's own type system handles the request/content header split with no hardcoded lists. Returns 502 on unreachable service. |
 
@@ -155,6 +155,14 @@ dotnet run --project EntropyTunnel.Client -- 3000 myapp
 dotnet run --project EntropyTunnel.Client -- 4000 otherapp
 ```
 
+To password-protect the tunnel's dashboard, pass `--password`:
+
+```bash
+dotnet run --project EntropyTunnel.Client -- --password mysecret 3000 myapp
+```
+
+On first request, you'll see a simple password page. After authenticating, a cookie is set and stored in browser local storage (for the session). All subsequent requests pass through with the cookie header.
+
 ### 4. Start the Client
 
 ```bash
@@ -220,27 +228,121 @@ dotnet publish EntropyTunnel.Server \
 
 ---
 
+## Chaos Rules & Distributions
+
+### Latency Distribution Types
+
+When creating a chaos rule with latency, choose a distribution to simulate realistic network conditions:
+
+| Distribution | Configuration | Use Case |
+|---|---|---|
+| **Uniform** | Latency ± Jitter | Simple testing, quick validation. All delays equally likely within range. |
+| **Gaussian** | Mean = Latency, StdDev = Jitter | Realistic network delays. Most requests cluster around mean, rare extremes. |
+| **Bimodal** | Two Gaussians with weights | Bimodal network (e.g., fast local cache + slow remote). First mode weight default 0.95. |
+| **Exponential** | Lambda, scaled by base latency | Bursty delays. High variance, tail-heavy (few very slow responses). Typical λ: 0.001–0.1. |
+
+**Examples:**
+- Simulate a slow 3G network: `Latency=500ms, Distribution=Gaussian, Jitter=200ms`
+- Bimodal (95% fast, 5% slow): `Latency=10ms, Jitter=5ms` + `Mean2=500ms, StdDev2=100ms, Weight1=0.95`
+
+### Error Distribution Types
+
+Choose how errors cluster over time:
+
+| Distribution | Configuration | Behavior |
+|---|---|---|
+| **Random** | Error Rate (0–100%) | Each request independently has N% chance of error. Errors are uniformly distributed. |
+| **Poisson** | Lambda, Burst Duration | Errors cluster in bursts. When triggered, errors occur for N ms at high rate. Simulates partial outages. |
+
+**Examples:**
+- Intermittent errors: `Rate=5%, Distribution=Random`
+- Simulated outage: `Rate=50%, Distribution=Poisson, Lambda=0.1, BurstDuration=3000ms` (bursts ~3 seconds, 10% chance per second)
+
+### Real-time Metrics Dashboard
+
+The dashboard now streams real-time metrics from the tunnel server:
+
+- **Requests/sec (RPS)** — throughput over the last 60 seconds
+- **Latency percentiles** — P50, P95, P99 to track tail latencies
+- **Error rate** — percentage of 4xx/5xx responses
+- **Request log** — live table of recent requests with method, status, latency
+- **Connection count** — active tunnel connections
+
+Metrics update every 1 second via SSE (`GET /api/metrics/stream`). All charts update smoothly without full re-renders.
+
+### Examples
+
+**Example 1: Realistic slow API**
+
+```
+Name: Slow payment gateway
+Path: /api/pay
+Method: POST
+Latency: 1000ms
+Jitter: 200ms
+Distribution: Gaussian
+Error Rate: 2%
+Error Distribution: Random
+Error Code: 503
+```
+
+→ Simulates a flaky payment processor: most calls ~1000ms, occasional 503s.
+
+**Example 2: Network with intermittent outage**
+
+```
+Name: Intermittent DB
+Path: /api/db/*
+Latency: 50ms
+Distribution: Exponential
+Lambda: 0.03
+Error Rate: 20%
+Error Distribution: Poisson
+Lambda: 0.15
+Burst Duration: 5000ms
+```
+
+→ 50ms base latency, rare spikes. Errors cluster in 5-second bursts at ~15% burst rate.
+
+**Example 3: Dual-mode cache (fast local + slow remote)**
+
+```
+Name: Cache miss spikes
+Path: /api/cache
+Latency: 5ms
+Distribution: Bimodal
+Mean2: 300ms
+StdDev2: 50ms
+Weight1: 0.90
+```
+
+→ 90% hit cache (5ms), 10% miss remote backend (300ms).
+
+---
+
 ## Project Structure
 
 ```
 EntropyTunnel/
 ├── EntropyTunnel.Server/          # Central relay server
-│   └── Program.cs
+│   ├── Metrics/                   # MetricsCollector (60-second sliding window, SSE stream)
+│   ├── State/                     # AgentState (rules, request log per agent)
+│   ├── Sse/                       # SseConnectionManager
+│   └── Program.cs                 # WebSocket relay + metrics SSE endpoint
 ├── EntropyTunnel.Client/
-│   ├── Configuration/             # TunnelSettings
+│   ├── Configuration/             # TunnelSettings (with TunnelPassword for auth gate)
 │   ├── Dashboard/                 # React + TypeScript SPA
 │   │   ├── src/
-│   │   │   ├── components/        # ChaosRules, MockRules, RoutingRules, RequestLog, StatusBar
+│   │   │   ├── components/        # ChaosRules (with dist dropdowns), MockRules, RoutingRules, RequestLog, MetricsCharts
+│   │   │   ├── context/           # MetricsContext (SSE subscription + reconnect)
 │   │   │   ├── api/client.ts      # HTTP API client
-│   │   │   └── types/index.ts     # Shared TypeScript types
+│   │   │   └── types/index.ts     # ChaosRule with distributions, TunnelMetricsSnapshot
 │   │   └── vite.config.ts
-│   ├── Models/                    # ChaosRule, MockRule, RoutingRule, AgentInfo, RequestLogEntry
 │   ├── Pipeline/                  # IPipelineStage, RequestPipeline, TunnelContext, PathMatcher
-│   ├── Stages/                    # MockEngine, ChaosEngine, RequestRouter, LocalForwarder
-│   ├── Multiplexer/               # TunnelMultiplexer (WebSocket framing)
-│   ├── Services/                  # TunnelService, TunnelStatusService, AgentRegistrationService
-│   ├── Dashboard/                 # RuleStore, AgentRegistry (in-process state)
-│   ├── wwwroot/                   # Built dashboard (generated by MSBuild)
-│   └── Program.cs
-└── EntropyTunnel.Core/            # Shared protocol utilities
+│   ├── Stages/                    # AuthGateStage (password protection), MockEngine, ChaosEngine, RequestRouter, LocalForwarder
+│   └── Program.cs                 # Host entry; wires up AuthGateStage + metrics recording
+├── EntropyTunnel.Core/
+│   ├── Models/                    # ChaosRule (with LatencyDistribution, ErrorDistribution enums), MockRule, RoutingRule, RequestLogEntry, TunnelMetricsSnapshot, RequestDataPoint
+│   └── DistributionSampler.cs     # Box-Muller, Poisson, Exponential, Bimodal sampling; clamped to [0, 30000] ms
+└── README.md
 ```

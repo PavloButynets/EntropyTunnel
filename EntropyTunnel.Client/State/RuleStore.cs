@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 using EntropyTunnel.Core.Models;
 using EntropyTunnel.Core.Payloads;
 
-namespace EntropyTunnel.Client.Dashboard;
+namespace EntropyTunnel.Client.State;
 
 /// <summary>
 /// Thread-safe, in-process store for all runtime-mutable rules and the request log.

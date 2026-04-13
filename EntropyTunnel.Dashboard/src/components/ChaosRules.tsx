@@ -18,9 +18,17 @@ const DEFAULT_FORM: FormState = {
   isEnabled: true,
   latencyMs: 0,
   jitterMs: 0,
+  latencyDistribution: "Uniform",
+  bimodalMean2: 0,
+  bimodalStdDev2: 0,
+  bimodalWeight1: 0.95,
+  exponentialLambda: 0.02,
   errorRate: 0,
   errorStatusCode: 502,
   errorBody: "Chaos Engineering: Injected Error",
+  errorDistribution: "Random",
+  poissonLambda: 0.1,
+  poissonBurstDurationMs: 2000,
 };
 
 // Validation
@@ -307,7 +315,69 @@ export function ChaosRules({ rules, onRefresh }: Props) {
                     <span className="field-error">{errors.jitterMs}</span>
                   )}
                 </div>
+                <div className="form-group">
+                  <label>Latency Distribution</label>
+                  <select
+                    value={form.latencyDistribution}
+                    onChange={(e) => set("latencyDistribution", e.target.value as any)}
+                  >
+                    <option value="Uniform">Uniform</option>
+                    <option value="Gaussian">Gaussian</option>
+                    <option value="Bimodal">Bimodal</option>
+                    <option value="Exponential">Exponential</option>
+                  </select>
+                </div>
               </div>
+
+              {form.latencyDistribution === "Gaussian" && (
+                <div style={{ padding: "8px", background: "#1a1a1a", borderRadius: "4px", fontSize: "12px", color: "#999", marginBottom: "12px" }}>
+                  Latency = mean, Jitter = standard deviation
+                </div>
+              )}
+
+              {form.latencyDistribution === "Bimodal" && (
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Mean 2 (ms)</label>
+                    <input
+                      type="number"
+                      value={form.bimodalMean2}
+                      onChange={(e) => set("bimodalMean2", +e.target.value)}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>StdDev 2 (ms)</label>
+                    <input
+                      type="number"
+                      value={form.bimodalStdDev2}
+                      onChange={(e) => set("bimodalStdDev2", +e.target.value)}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Weight 1 (0–1)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={form.bimodalWeight1}
+                      onChange={(e) => set("bimodalWeight1", +e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {form.latencyDistribution === "Exponential" && (
+                <div className="form-group">
+                  <label>Lambda (rate, typical 0.001–0.1)</label>
+                  <input
+                    type="number"
+                    step={0.001}
+                    value={form.exponentialLambda}
+                    onChange={(e) => set("exponentialLambda", +e.target.value)}
+                  />
+                </div>
+              )}
 
               <div className="form-row">
                 <div className="form-group">
@@ -343,7 +413,39 @@ export function ChaosRules({ rules, onRefresh }: Props) {
                     </span>
                   )}
                 </div>
+                <div className="form-group">
+                  <label>Error Distribution</label>
+                  <select
+                    value={form.errorDistribution}
+                    onChange={(e) => set("errorDistribution", e.target.value as any)}
+                  >
+                    <option value="Random">Random</option>
+                    <option value="Poisson">Poisson</option>
+                  </select>
+                </div>
               </div>
+
+              {form.errorDistribution === "Poisson" && (
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Poisson Lambda (0.01–0.5)</label>
+                    <input
+                      type="number"
+                      step={0.01}
+                      value={form.poissonLambda}
+                      onChange={(e) => set("poissonLambda", +e.target.value)}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Burst Duration (ms)</label>
+                    <input
+                      type="number"
+                      value={form.poissonBurstDurationMs}
+                      onChange={(e) => set("poissonBurstDurationMs", +e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
 
               <div className="form-group">
                 <label>Error Response Body</label>

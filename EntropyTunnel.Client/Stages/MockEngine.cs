@@ -1,6 +1,7 @@
 using System.Text;
-using EntropyTunnel.Client.Dashboard;
+using EntropyTunnel.Client.State;
 using EntropyTunnel.Client.Pipeline;
+using EntropyTunnel.Core.Models;
 
 namespace EntropyTunnel.Client.Stages;
 

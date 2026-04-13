@@ -220,7 +220,8 @@ export function RequestLog({ entries, onRefresh }: Props) {
           No requests yet — send some traffic through the tunnel.
         </div>
       ) : (
-        <table>
+        <div style={{ overflowX: "auto", width: "100%" }}>
+        <table style={{ minWidth: 700 }}>
           <thead>
             <tr>
               <th style={{ width: 16 }}></th>
@@ -467,6 +468,7 @@ export function RequestLog({ entries, onRefresh }: Props) {
             })}
           </tbody>
         </table>
+        </div>
       )}
 
       {replayEntry && replay && (
