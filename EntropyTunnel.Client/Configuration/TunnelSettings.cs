@@ -7,4 +7,5 @@ public sealed class TunnelSettings
     public string ClientId { get; set; } = "default";
     public int LocalPort { get; set; } = 5173;
     public string AccountId { get; set; } = string.Empty;
+    public string? TunnelPassword { get; set; }
 }

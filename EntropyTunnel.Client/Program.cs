@@ -6,20 +6,30 @@ using EntropyTunnel.Client.Pipeline;
 using EntropyTunnel.Client.Services;
 using EntropyTunnel.Client.Stages;
 
-// Parse positional CLI args: <port> <client-id>
+// Strip named flags first, then parse positional args: <port> <client-id>
 int localPort = 0;
 string? clientId = null;
+string? tunnelPassword = null;
 
-if (args.Length >= 2 && int.TryParse(args[0], out int parsedPort))
+var positional = new List<string>();
+for (int i = 0; i < args.Length; i++)
+{
+    if (args[i] == "--password" && i + 1 < args.Length)
+        tunnelPassword = args[++i];
+    else
+        positional.Add(args[i]);
+}
+
+if (positional.Count >= 2 && int.TryParse(positional[0], out int parsedPort))
 {
     localPort = parsedPort;
-    clientId = args[1];
+    clientId = positional[1];
 }
-else if (args.Length != 0)
+else if (positional.Count != 0)
 {
     Console.ForegroundColor = ConsoleColor.Yellow;
-    Console.WriteLine("Usage  : EntropyTunnel.Client <local-port> <client-id>");
-    Console.WriteLine("Example: dotnet run -- 5173 app1");
+    Console.WriteLine("Usage  : EntropyTunnel.Client [--password <pwd>] [<local-port> <client-id>]");
+    Console.WriteLine("Example: dotnet run -- --password secret 5173 app1");
     Console.ResetColor();
     return;
 }
@@ -46,6 +56,10 @@ else
 
 
 var host = Host.CreateDefaultBuilder(args)
+    .ConfigureLogging(logging =>
+    {
+        logging.ClearProviders();
+    })
     .ConfigureAppConfiguration((ctx, cfg) =>
     {
         var env = ctx.HostingEnvironment;
@@ -63,12 +77,14 @@ var host = Host.CreateDefaultBuilder(args)
 
         if (localPort > 0) settings.LocalPort = localPort;
         if (clientId is not null) settings.ClientId = clientId;
+        if (tunnelPassword is not null) settings.TunnelPassword = tunnelPassword;
         settings.AccountId = accountId;
 
         services.AddSingleton(settings);
         services.AddSingleton<RuleStore>();
         services.AddSingleton<TunnelMultiplexer>();
 
+        services.AddSingleton<AuthGateStage>();
         services.AddSingleton<MockEngine>();
         services.AddSingleton<ChaosEngine>();
         services.AddSingleton<RequestRouter>();

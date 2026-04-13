@@ -5,19 +5,20 @@ namespace EntropyTunnel.Client.Pipeline;
 /// <summary>
 /// Assembles and executes the ordered chain of pipeline stages.
 ///
-/// Chain: MockEngine -> ChaosEngine -> RequestRouter -> LocalForwarder
+/// Chain: AuthGateStage -> MockEngine -> ChaosEngine -> RequestRouter -> LocalForwarder
 /// </summary>
 public sealed class RequestPipeline
 {
     private readonly IReadOnlyList<IPipelineStage> _stages;
 
     public RequestPipeline(
+        AuthGateStage authGate,
         MockEngine mockEngine,
         ChaosEngine chaosEngine,
         RequestRouter requestRouter,
         LocalForwarder localForwarder)
     {
-        _stages = [mockEngine, chaosEngine, requestRouter, localForwarder];
+        _stages = [authGate, mockEngine, chaosEngine, requestRouter, localForwarder];
     }
 
     public Task ExecuteAsync(TunnelContext context, CancellationToken ct = default)
