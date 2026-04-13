@@ -212,20 +212,12 @@ public sealed class AuthGateStage : IPipelineStage
             </div>
           </div>
           <script>
-            const LS_KEY = '_et_auth';
             function submit() {
-              const val = document.getElementById('pw').value;
-              if (val) localStorage.setItem(LS_KEY, val);
               document.getElementById('f').submit();
             }
             document.getElementById('pw').addEventListener('keydown', function(e) {
               if (e.key === 'Enter') submit();
             });
-            const stored = localStorage.getItem(LS_KEY);
-            if (stored) {
-              document.getElementById('pw').value = stored;
-              document.getElementById('f').submit();
-            }
           </script>
         </body>
         </html>
