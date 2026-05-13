@@ -55,8 +55,6 @@ builder.Services.AddAuthentication("Cookies")
     });
 builder.Services.AddAuthorization();
 
-// ── App ────────────────────────────────────────────────────────────────────────
-
 var app = builder.Build();
 
 app.UseWebSockets();
@@ -81,7 +79,7 @@ var _activeChannels = new ConcurrentDictionary<Guid, Channel<byte[]>>();
 // Per-account passwords — generated on first connect for an account, reused for subsequent agents
 var _accountPasswords = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-// ── Helper: send a raw binary packet to a specific agent ───────────────────────
+// Helper: send a raw binary packet to a specific agent
 
 async Task SendToAgentAsync(string clientId, byte[] packet)
 {
@@ -136,6 +134,12 @@ app.Map("/tunnel", async (HttpContext context) =>
     if (string.IsNullOrEmpty(clientId))
         return Results.BadRequest("Missing clientId query parameter.");
 
+    if (_connections.ContainsKey(clientId))
+    {
+        Console.WriteLine($"[Server] Duplicate clientId rejected: '{clientId}' is already connected");
+        return Results.Conflict(new { error = "ClientId already in use", clientId });
+    }
+
     using var ws = await context.WebSockets.AcceptWebSocketAsync();
 
     var conn = new AgentConnection(ws, new SemaphoreSlim(1, 1));
@@ -145,9 +149,8 @@ app.Map("/tunnel", async (HttpContext context) =>
     state.IsConnected = true;
     state.ConnectedAt = DateTimeOffset.UtcNow;
 
-    Console.WriteLine($"[Server] AGENT CONNECTED: {clientId}");
-
     // Associate agent with its account
+    Console.WriteLine($"[Server] Agent connected: {clientId}");
     string accountIdRaw = context.Request.Query["accountId"].ToString();
     string agentAccountId = !string.IsNullOrEmpty(accountIdRaw) ? accountIdRaw : clientId;
     state.AccountId = agentAccountId;

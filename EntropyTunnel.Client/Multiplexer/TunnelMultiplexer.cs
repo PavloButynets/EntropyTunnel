@@ -54,7 +54,7 @@ public sealed class TunnelMultiplexer
     {
         byte[] idBytes = requestId.ToByteArray();
 
-        // ── 1. Header packet (0x01)
+        // 1. Header packet (0x01)
         byte[] typeBytes = Encoding.UTF8.GetBytes(contentType);
         byte[] typeLenBytes = BitConverter.GetBytes(typeBytes.Length);
         byte[] statusBytes = BitConverter.GetBytes(statusCode);
@@ -74,7 +74,7 @@ public sealed class TunnelMultiplexer
 
         await SendRawAsync(headerPacket, ct);
 
-        // ── 2. Data chunks (0x02)
+        // 2. Data chunks (0x02)
         const int ChunkSize = 16 * 1024; // 16 KB - matches original
         byte[] localBuffer = ArrayPool<byte>.Shared.Rent(ChunkSize);
         try
@@ -95,7 +95,7 @@ public sealed class TunnelMultiplexer
             ArrayPool<byte>.Shared.Return(localBuffer);
         }
 
-        // - 3. EOF packet (0x03)
+        // 3. EOF packet (0x03)
         var eofPacket = new byte[17];
         Array.Copy(idBytes, 0, eofPacket, 0, 16);
         eofPacket[16] = 0x03;

@@ -20,7 +20,7 @@ public sealed class TunnelContext
     /// <summary>Set by RequestRouter. Read by LocalForwarder.</summary>
     public string TargetUrl { get; set; } = string.Empty;
 
-    // ── Response (filled by whichever stage handles the request) ──────────────
+    // Response (filled by whichever stage handles the request)
     public int StatusCode { get; set; } = 200;
     public string ContentType { get; set; } = "application/octet-stream";
     public Stream? ResponseStream { get; set; }

@@ -35,7 +35,7 @@ public sealed class RequestRouter : IPipelineStage
             : $"http://localhost:{_settings.LocalPort}{context.Path}";
 
         if (rule is not null)
-            _logger.LogDebug("[ROUTE] {Path} → {TargetUrl} via rule '{Rule}'",
+            _logger.LogDebug("[ROUTE] {Path} -> {TargetUrl} via rule '{Rule}'",
                 context.Path, context.TargetUrl, rule.Name);
 
         return next();

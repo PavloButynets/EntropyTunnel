@@ -33,7 +33,7 @@ public sealed class MockEngine : IPipelineStage
             return;
         }
 
-        _logger.LogInformation("[MOCK] {Method} {Path} matched rule '{Name}' → {Status}",
+        _logger.LogInformation("[MOCK] {Method} {Path} matched rule '{Name}' -> {Status}",
             context.Method, context.Path, rule.Name, rule.StatusCode);
 
         context.StatusCode = rule.StatusCode;

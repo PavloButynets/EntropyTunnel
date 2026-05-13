@@ -22,7 +22,7 @@ public sealed class RuleStore
     private readonly ConcurrentQueue<RequestLogEntry> _log = new();
     private const int MaxLogEntries = 200;
 
-    // ── Chaos Rules ───────────────────────────────────────────────────────────
+    // Chaos Rules
 
     /// <summary>Snapshot ordered by name. Safe for concurrent reads.</summary>
     public IEnumerable<ChaosRule> GetChaosRules() =>
@@ -50,7 +50,7 @@ public sealed class RuleStore
         return toggled;
     }
 
-    // ── Mock Rules ────────────────────────────────────────────────────────────
+    // Mock Rules
 
     public IEnumerable<MockRule> GetMockRules() =>
         _mocks.Values.OrderBy(r => r.Name);
@@ -68,7 +68,7 @@ public sealed class RuleStore
     public bool RemoveMockRule(Guid id) =>
         _mocks.TryRemove(id, out _);
 
-    // ── Routing Rules ─────────────────────────────────────────────────────────
+    // Routing Rules
 
     /// <summary>Snapshot ordered by Priority ascending (lowest = matched first).</summary>
     public IEnumerable<RoutingRule> GetRoutingRules() =>
@@ -87,7 +87,7 @@ public sealed class RuleStore
     public bool RemoveRoutingRule(Guid id) =>
         _routing.TryRemove(id, out _);
 
-    // ── Request Log ───────────────────────────────────────────────────────────
+    // Request Log
 
     /// <summary>Returns up to MaxLogEntries entries, newest first.</summary>
     public IEnumerable<RequestLogEntry> GetRequestLog() =>

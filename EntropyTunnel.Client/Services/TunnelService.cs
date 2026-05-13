@@ -68,6 +68,15 @@ public sealed class TunnelService : BackgroundService
             {
                 break;
             }
+            catch (WebSocketException ex) when (ex.Message.Contains("PolicyViolation") || ex.Message.Contains("already in use"))
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] FATAL: ClientId '{_settings.ClientId}' is already connected elsewhere");
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine("        Use a different client ID or stop the other instance.");
+                Console.ResetColor();
+                break;
+            }
             catch (Exception ex)
             {
                 Console.ForegroundColor = ConsoleColor.Red;
@@ -112,7 +121,11 @@ public sealed class TunnelService : BackgroundService
 
                 if (result.MessageType == WebSocketMessageType.Close)
                 {
-                    _logger.LogInformation("Server closed the WebSocket.");
+                    string reason = ws.CloseStatusDescription ?? "Unknown";
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Server closed connection: {reason}");
+                    Console.ResetColor();
+                    _logger.LogInformation("Server closed the WebSocket: {Reason}", reason);
                     break;
                 }
 
@@ -257,7 +270,7 @@ public sealed class TunnelService : BackgroundService
         catch (Exception ex)
         {
             Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] ERR  {incoming.Method} {incoming.Path} — {ex.GetType().Name}: {ex.Message}");
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Error: {incoming.Method} {incoming.Path} - {ex.GetType().Name}: {ex.Message}");
             Console.ResetColor();
         }
         finally
@@ -317,14 +330,14 @@ public sealed class TunnelService : BackgroundService
         Console.WriteLine($"  Tunnel ready");
         Console.ResetColor();
         Console.ForegroundColor = ConsoleColor.White;
-        Console.WriteLine($"  Tunnel URL   →  https://{_settings.ClientId}.{_settings.PublicDomain}/");
-        Console.WriteLine($"  Dashboard    →  {payload.DashboardUrl}");
+        Console.WriteLine($"  Tunnel URL:   https://{_settings.ClientId}.{_settings.PublicDomain}/");
+        Console.WriteLine($"  Dashboard:    {payload.DashboardUrl}");
         Console.ForegroundColor = ConsoleColor.Yellow;
-        Console.WriteLine($"  Password     →  {payload.Password}");
+        Console.WriteLine($"  Password:     {payload.Password}");
         Console.ResetColor();
         Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.WriteLine($"  Account      →  {_settings.AccountId}");
-        Console.WriteLine($"  Local Port   →  {_settings.LocalPort}");
+        Console.WriteLine($"  Account:      {_settings.AccountId}");
+        Console.WriteLine($"  Local Port:   {_settings.LocalPort}");
         Console.ForegroundColor = ConsoleColor.Green;
         Console.WriteLine($"  {sep}");
         Console.ResetColor();
@@ -339,13 +352,13 @@ public sealed class TunnelService : BackgroundService
                                 : statusCode < 500 ? ConsoleColor.Yellow
                                 : ConsoleColor.Red;
 
-        Console.Write($"[{DateTime.Now:HH:mm:ss}] {method,-7}{path,-45}{statusCode}  {elapsedMs}ms");
+        Console.Write($"[{DateTime.Now:HH:mm:ss}] {method,-7}{path,-45}{statusCode} {elapsedMs}ms");
 
         if (chaosRule is not null || mockRule is not null)
         {
             Console.ForegroundColor = ConsoleColor.DarkGray;
-            if (chaosRule is not null) Console.Write($"  chaos:{chaosRule}");
-            if (mockRule is not null) Console.Write($"  mock:{mockRule}");
+            if (chaosRule is not null) Console.Write($" chaos={chaosRule}");
+            if (mockRule is not null) Console.Write($" mock={mockRule}");
         }
 
         Console.WriteLine();
