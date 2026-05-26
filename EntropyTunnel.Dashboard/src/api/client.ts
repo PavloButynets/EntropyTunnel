@@ -98,6 +98,9 @@ export const updateMockRule = (id: string, rule: MockRule) =>
 export const deleteMockRule = (id: string) =>
   req<void>(agentUrl(`/rules/mocks/${id}`), { method: "DELETE" });
 
+export const toggleMockRule = (id: string) =>
+  req<MockRule>(agentUrl(`/rules/mocks/${id}/toggle`), { method: "PATCH" });
+
 // Routing Rules
 export const getRoutingRules = () =>
   req<RoutingRule[]>(agentUrl("/rules/routing"));

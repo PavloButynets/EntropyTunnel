@@ -4,7 +4,6 @@
   min-height: 100vh;
 }
 
-/* ── Tab bar ─────────────────────────────────────────────────────────────────── */
 .tabs {
   display: flex;
   gap: 2px;
@@ -25,7 +24,9 @@
   color: var(--text-muted);
   font-size: 13px;
   cursor: pointer;
-  transition: color 0.15s, background 0.15s;
+  transition:
+    color 0.15s,
+    background 0.15s;
   position: relative;
   bottom: -1px;
 }
@@ -42,7 +43,6 @@
   border-bottom-color: var(--bg);
 }
 
-/* ── Main content area ──────────────────────────────────────────────────────── */
 .main {
   flex: 1;
   padding: 24px 20px;

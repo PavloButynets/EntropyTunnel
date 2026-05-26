@@ -43,6 +43,7 @@ export function MockRules({ rules, onRefresh }: Props) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [apiError, setApiError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [toggling, setToggling] = useState<string | null>(null);
 
   function openCreate() {
     setForm(DEFAULT_FORM);
@@ -99,6 +100,18 @@ export function MockRules({ rules, onRefresh }: Props) {
       setApiError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleToggle(rule: MockRule) {
+    setToggling(rule.id);
+    try {
+      await api.toggleMockRule(rule.id);
+      onRefresh();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Toggle failed");
+    } finally {
+      setToggling(null);
     }
   }
 
@@ -160,11 +173,11 @@ export function MockRules({ rules, onRefresh }: Props) {
                   {rule.contentType}
                 </td>
                 <td>
-                  <span
-                    className={`badge ${rule.isEnabled ? "badge-green" : "badge-muted"}`}
-                  >
-                    {rule.isEnabled ? "ON" : "OFF"}
-                  </span>
+                  <button
+                    className={`toggle ${rule.isEnabled ? "on" : ""}`}
+                    onClick={() => handleToggle(rule)}
+                    disabled={toggling === rule.id}
+                  />
                 </td>
                 <td>
                   <div className="actions">
