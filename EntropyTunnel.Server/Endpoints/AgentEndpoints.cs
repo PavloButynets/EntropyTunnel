@@ -182,6 +182,17 @@ public static class AgentEndpoints
             await hub.SyncRulesToAgentAsync(clientId);
             return Results.NoContent();
         });
+
+        agentApi.MapPatch("/rules/mocks/{id:guid}/toggle", async (string clientId, Guid id, AppDbContext db, AgentStateStore store, TunnelHub hub) =>
+        {
+            var row = await db.MockRules.FirstOrDefaultAsync(r => r.Id == id);
+            if (row is null) return Results.NotFound();
+            var rule = JsonSerializer.Deserialize<MockRule>(row.Data)!;
+            var updated = rule with { IsEnabled = !rule.IsEnabled };
+            await store.SaveMockRuleAsync(clientId, updated);
+            await hub.SyncRulesToAgentAsync(clientId);
+            return Results.Ok(updated);
+        });
     }
 
     private static void MapRoutingRules(RouteGroupBuilder agentApi)
