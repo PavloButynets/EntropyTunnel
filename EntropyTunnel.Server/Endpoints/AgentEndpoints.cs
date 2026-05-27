@@ -20,10 +20,20 @@ public static class AgentEndpoints
 
         api.MapPost("/auth/login", async (LoginRequest body, HttpContext ctx, AppDbContext db) =>
         {
-            var agent = await db.Agents.FirstOrDefaultAsync(a => a.ClientId == body.ClientId);
-            if (agent is null) return Results.StatusCode(401);
+            AccountRow? account = null;
 
-            var account = await db.Accounts.FirstOrDefaultAsync(a => a.AccountId == agent.AccountId);
+            if (!string.IsNullOrEmpty(body.ClientId))
+            {
+                var agent = await db.Agents.FirstOrDefaultAsync(a => a.ClientId == body.ClientId);
+                if (agent is not null)
+                    account = await db.Accounts.FirstOrDefaultAsync(a => a.AccountId == agent.AccountId);
+            }
+            else
+            {
+                var all = await db.Accounts.ToListAsync();
+                account = all.FirstOrDefault(a => PasswordHasher.Verify(body.Password, a.Password));
+            }
+
             if (account is null || !PasswordHasher.Verify(body.Password, account.Password))
                 return Results.StatusCode(401);
 
@@ -253,4 +263,4 @@ public static class AgentEndpoints
     }
 }
 
-public record LoginRequest(string ClientId, string Password);
+public record LoginRequest(string? ClientId, string Password);
