@@ -1,8 +1,12 @@
 using System.Security.Claims;
+using System.Text.Json;
 using EntropyTunnel.Core.Models;
+using EntropyTunnel.Server.Data;
+using EntropyTunnel.Server.Security;
 using EntropyTunnel.Server.Sse;
 using EntropyTunnel.Server.State;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.EntityFrameworkCore;
 
 namespace EntropyTunnel.Server.Endpoints;
 
@@ -14,15 +18,19 @@ public static class AgentEndpoints
 
         api.MapGet("/ping", () => new { app = "EntropyTunnel.Server", version = "2.0" });
 
-        api.MapPost("/auth/login", async (LoginRequest body, HttpContext ctx, TunnelHub hub) =>
+        api.MapPost("/auth/login", async (LoginRequest body, HttpContext ctx, AppDbContext db) =>
         {
-            var match = hub.AccountPasswords.FirstOrDefault(kvp => kvp.Value == body.Password);
-            if (match.Key is null) return Results.StatusCode(401);
+            var agent = await db.Agents.FirstOrDefaultAsync(a => a.ClientId == body.ClientId);
+            if (agent is null) return Results.StatusCode(401);
 
-            var claims = new[] { new Claim(ClaimTypes.Name, match.Key) };
+            var account = await db.Accounts.FirstOrDefaultAsync(a => a.AccountId == agent.AccountId);
+            if (account is null || !PasswordHasher.Verify(body.Password, account.Password))
+                return Results.StatusCode(401);
+
+            var claims = new[] { new Claim(ClaimTypes.Name, account.AccountId) };
             var identity = new ClaimsIdentity(claims, "Cookies");
             await ctx.SignInAsync("Cookies", new ClaimsPrincipal(identity));
-            return Results.Ok(new { accountId = match.Key });
+            return Results.Ok(new { accountId = account.AccountId });
         });
 
         api.MapGet("/auth/me", (HttpContext ctx) =>
@@ -32,17 +40,22 @@ public static class AgentEndpoints
             return Results.Ok(new { accountId });
         });
 
-        api.MapGet("/agents", (HttpContext ctx, AgentStateStore store) =>
+        api.MapGet("/agents", async (HttpContext ctx, AgentStateStore store, AppDbContext db) =>
         {
             var accountId = ctx.User.Identity?.Name;
             if (string.IsNullOrEmpty(accountId)) return Results.StatusCode(401);
 
-            var list = store.GetByAccount(accountId).Select(t => new
+            var dbAgents = await db.Agents.Where(a => a.AccountId == accountId).ToListAsync();
+            var list = dbAgents.Select(a =>
             {
-                clientId = t.ClientId,
-                isConnected = t.State.IsConnected,
-                publicUrl = t.State.PublicUrl,
-                connectedAt = t.State.ConnectedAt,
+                var state = store.Get(a.ClientId);
+                return new
+                {
+                    clientId = a.ClientId,
+                    isConnected = state?.IsConnected ?? false,
+                    publicUrl = state?.PublicUrl ?? "",
+                    connectedAt = state?.ConnectedAt,
+                };
             });
             return Results.Ok(list);
         });
@@ -56,8 +69,9 @@ public static class AgentEndpoints
                 return Results.StatusCode(401);
 
             var routeClientId = ctx.HttpContext.GetRouteValue("clientId") as string ?? "";
-            var agentState = ctx.HttpContext.RequestServices.GetRequiredService<AgentStateStore>().Get(routeClientId);
-            if (agentState is null || !agentState.AccountId.Equals(authenticatedAccountId, StringComparison.OrdinalIgnoreCase))
+            var db = ctx.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+            var agent = await db.Agents.FirstOrDefaultAsync(a => a.ClientId == routeClientId);
+            if (agent is null || !agent.AccountId.Equals(authenticatedAccountId, StringComparison.OrdinalIgnoreCase))
                 return Results.StatusCode(403);
 
             return await next(ctx);
@@ -66,12 +80,11 @@ public static class AgentEndpoints
         agentApi.MapGet("/status", (string clientId, AgentStateStore store) =>
         {
             var state = store.Get(clientId);
-            if (state is null) return Results.NotFound($"Agent '{clientId}' not found.");
             return Results.Ok(new
             {
-                isConnected = state.IsConnected,
-                publicUrl = state.PublicUrl,
-                connectedAt = state.ConnectedAt,
+                isConnected = state?.IsConnected ?? false,
+                publicUrl = state?.PublicUrl ?? "",
+                connectedAt = state?.ConnectedAt,
             });
         });
 
@@ -84,39 +97,44 @@ public static class AgentEndpoints
 
     private static void MapChaosRules(RouteGroupBuilder agentApi)
     {
-        agentApi.MapGet("/rules/chaos", (string clientId, AgentStateStore store) =>
-            Results.Ok(store.GetOrCreate(clientId).ChaosRules.Values.OrderBy(r => r.Name)));
+        agentApi.MapGet("/rules/chaos", async (string clientId, AppDbContext db) =>
+        {
+            var rows = await db.ChaosRules.Where(r => r.ClientId == clientId).ToListAsync();
+            return Results.Ok(rows.Select(r => JsonSerializer.Deserialize<ChaosRule>(r.Data)!).OrderBy(r => r.Name));
+        });
 
         agentApi.MapPost("/rules/chaos", async (string clientId, ChaosRule rule, AgentStateStore store, TunnelHub hub) =>
         {
             rule = rule with { Id = Guid.NewGuid() };
-            store.GetOrCreate(clientId).ChaosRules[rule.Id] = rule;
+            await store.SaveChaosRuleAsync(clientId, rule);
             await hub.SyncRulesToAgentAsync(clientId);
             return Results.Created($"/api/agents/{clientId}/rules/chaos/{rule.Id}", rule);
         });
 
-        agentApi.MapPut("/rules/chaos/{id:guid}", async (string clientId, Guid id, ChaosRule rule, AgentStateStore store, TunnelHub hub) =>
+        agentApi.MapPut("/rules/chaos/{id:guid}", async (string clientId, Guid id, ChaosRule rule, AppDbContext db, AgentStateStore store, TunnelHub hub) =>
         {
-            var state = store.GetOrCreate(clientId);
-            if (!state.ChaosRules.ContainsKey(id)) return Results.NotFound();
-            state.ChaosRules[id] = rule with { Id = id };
+            if (!await db.ChaosRules.AnyAsync(r => r.Id == id)) return Results.NotFound();
+            rule = rule with { Id = id };
+            await store.SaveChaosRuleAsync(clientId, rule);
             await hub.SyncRulesToAgentAsync(clientId);
             return Results.Ok(rule);
         });
 
-        agentApi.MapDelete("/rules/chaos/{id:guid}", async (string clientId, Guid id, AgentStateStore store, TunnelHub hub) =>
+        agentApi.MapDelete("/rules/chaos/{id:guid}", async (string clientId, Guid id, AppDbContext db, AgentStateStore store, TunnelHub hub) =>
         {
-            if (!store.GetOrCreate(clientId).ChaosRules.TryRemove(id, out _)) return Results.NotFound();
+            if (!await db.ChaosRules.AnyAsync(r => r.Id == id)) return Results.NotFound();
+            await store.DeleteChaosRuleAsync(id);
             await hub.SyncRulesToAgentAsync(clientId);
             return Results.NoContent();
         });
 
-        agentApi.MapPatch("/rules/chaos/{id:guid}/toggle", async (string clientId, Guid id, AgentStateStore store, TunnelHub hub) =>
+        agentApi.MapPatch("/rules/chaos/{id:guid}/toggle", async (string clientId, Guid id, AppDbContext db, AgentStateStore store, TunnelHub hub) =>
         {
-            var rules = store.GetOrCreate(clientId).ChaosRules;
-            if (!rules.TryGetValue(id, out var existing)) return Results.NotFound();
-            var updated = existing with { IsEnabled = !existing.IsEnabled };
-            rules[id] = updated;
+            var row = await db.ChaosRules.FirstOrDefaultAsync(r => r.Id == id);
+            if (row is null) return Results.NotFound();
+            var rule = JsonSerializer.Deserialize<ChaosRule>(row.Data)!;
+            var updated = rule with { IsEnabled = !rule.IsEnabled };
+            await store.SaveChaosRuleAsync(clientId, updated);
             await hub.SyncRulesToAgentAsync(clientId);
             return Results.Ok(updated);
         });
@@ -124,29 +142,33 @@ public static class AgentEndpoints
 
     private static void MapMockRules(RouteGroupBuilder agentApi)
     {
-        agentApi.MapGet("/rules/mocks", (string clientId, AgentStateStore store) =>
-            Results.Ok(store.GetOrCreate(clientId).MockRules.Values.OrderBy(r => r.Name)));
+        agentApi.MapGet("/rules/mocks", async (string clientId, AppDbContext db) =>
+        {
+            var rows = await db.MockRules.Where(r => r.ClientId == clientId).ToListAsync();
+            return Results.Ok(rows.Select(r => JsonSerializer.Deserialize<MockRule>(r.Data)!).OrderBy(r => r.Name));
+        });
 
         agentApi.MapPost("/rules/mocks", async (string clientId, MockRule rule, AgentStateStore store, TunnelHub hub) =>
         {
             rule = rule with { Id = Guid.NewGuid() };
-            store.GetOrCreate(clientId).MockRules[rule.Id] = rule;
+            await store.SaveMockRuleAsync(clientId, rule);
             await hub.SyncRulesToAgentAsync(clientId);
             return Results.Created($"/api/agents/{clientId}/rules/mocks/{rule.Id}", rule);
         });
 
-        agentApi.MapPut("/rules/mocks/{id:guid}", async (string clientId, Guid id, MockRule rule, AgentStateStore store, TunnelHub hub) =>
+        agentApi.MapPut("/rules/mocks/{id:guid}", async (string clientId, Guid id, MockRule rule, AppDbContext db, AgentStateStore store, TunnelHub hub) =>
         {
-            var state = store.GetOrCreate(clientId);
-            if (!state.MockRules.ContainsKey(id)) return Results.NotFound();
-            state.MockRules[id] = rule with { Id = id };
+            if (!await db.MockRules.AnyAsync(r => r.Id == id)) return Results.NotFound();
+            rule = rule with { Id = id };
+            await store.SaveMockRuleAsync(clientId, rule);
             await hub.SyncRulesToAgentAsync(clientId);
             return Results.Ok(rule);
         });
 
-        agentApi.MapDelete("/rules/mocks/{id:guid}", async (string clientId, Guid id, AgentStateStore store, TunnelHub hub) =>
+        agentApi.MapDelete("/rules/mocks/{id:guid}", async (string clientId, Guid id, AppDbContext db, AgentStateStore store, TunnelHub hub) =>
         {
-            if (!store.GetOrCreate(clientId).MockRules.TryRemove(id, out _)) return Results.NotFound();
+            if (!await db.MockRules.AnyAsync(r => r.Id == id)) return Results.NotFound();
+            await store.DeleteMockRuleAsync(id);
             await hub.SyncRulesToAgentAsync(clientId);
             return Results.NoContent();
         });
@@ -154,29 +176,33 @@ public static class AgentEndpoints
 
     private static void MapRoutingRules(RouteGroupBuilder agentApi)
     {
-        agentApi.MapGet("/rules/routing", (string clientId, AgentStateStore store) =>
-            Results.Ok(store.GetOrCreate(clientId).RoutingRules.Values.OrderBy(r => r.Priority)));
+        agentApi.MapGet("/rules/routing", async (string clientId, AppDbContext db) =>
+        {
+            var rows = await db.RoutingRules.Where(r => r.ClientId == clientId).ToListAsync();
+            return Results.Ok(rows.Select(r => JsonSerializer.Deserialize<RoutingRule>(r.Data)!).OrderBy(r => r.Priority));
+        });
 
         agentApi.MapPost("/rules/routing", async (string clientId, RoutingRule rule, AgentStateStore store, TunnelHub hub) =>
         {
             rule = rule with { Id = Guid.NewGuid() };
-            store.GetOrCreate(clientId).RoutingRules[rule.Id] = rule;
+            await store.SaveRoutingRuleAsync(clientId, rule);
             await hub.SyncRulesToAgentAsync(clientId);
             return Results.Created($"/api/agents/{clientId}/rules/routing/{rule.Id}", rule);
         });
 
-        agentApi.MapPut("/rules/routing/{id:guid}", async (string clientId, Guid id, RoutingRule rule, AgentStateStore store, TunnelHub hub) =>
+        agentApi.MapPut("/rules/routing/{id:guid}", async (string clientId, Guid id, RoutingRule rule, AppDbContext db, AgentStateStore store, TunnelHub hub) =>
         {
-            var state = store.GetOrCreate(clientId);
-            if (!state.RoutingRules.ContainsKey(id)) return Results.NotFound();
-            state.RoutingRules[id] = rule with { Id = id };
+            if (!await db.RoutingRules.AnyAsync(r => r.Id == id)) return Results.NotFound();
+            rule = rule with { Id = id };
+            await store.SaveRoutingRuleAsync(clientId, rule);
             await hub.SyncRulesToAgentAsync(clientId);
             return Results.Ok(rule);
         });
 
-        agentApi.MapDelete("/rules/routing/{id:guid}", async (string clientId, Guid id, AgentStateStore store, TunnelHub hub) =>
+        agentApi.MapDelete("/rules/routing/{id:guid}", async (string clientId, Guid id, AppDbContext db, AgentStateStore store, TunnelHub hub) =>
         {
-            if (!store.GetOrCreate(clientId).RoutingRules.TryRemove(id, out _)) return Results.NotFound();
+            if (!await db.RoutingRules.AnyAsync(r => r.Id == id)) return Results.NotFound();
+            await store.DeleteRoutingRuleAsync(id);
             await hub.SyncRulesToAgentAsync(clientId);
             return Results.NoContent();
         });
@@ -184,12 +210,19 @@ public static class AgentEndpoints
 
     private static void MapLog(RouteGroupBuilder agentApi)
     {
-        agentApi.MapGet("/log", (string clientId, AgentStateStore store) =>
-            Results.Ok(store.GetOrCreate(clientId).GetLog()));
-
-        agentApi.MapDelete("/log", (string clientId, AgentStateStore store) =>
+        agentApi.MapGet("/log", async (string clientId, AppDbContext db) =>
         {
-            store.GetOrCreate(clientId).ClearLog();
+            var rows = await db.RequestLog
+                .Where(l => l.ClientId == clientId)
+                .OrderByDescending(l => l.Timestamp)
+                .Take(1000)
+                .ToListAsync();
+            return Results.Ok(rows.Select(r => JsonSerializer.Deserialize<RequestLogEntry>(r.Data)!));
+        });
+
+        agentApi.MapDelete("/log", async (string clientId, AgentStateStore store) =>
+        {
+            await store.ClearLogAsync(clientId);
             return Results.NoContent();
         });
     }
@@ -220,4 +253,4 @@ public static class AgentEndpoints
     }
 }
 
-public record LoginRequest(string Password);
+public record LoginRequest(string ClientId, string Password);

@@ -204,7 +204,7 @@ public sealed class AuthGateStage : IPipelineStage
             </div>
             {{(showError ? "<p class=\"error\">Incorrect password — try again.</p>" : "")}}
             <form id="f" method="POST" action="/_tunnel_auth">
-              <input id="pw" type="password" name="password" placeholder="Enter password" autocomplete="current-password" autofocus />
+              <input id="pw" type="password" name="password" placeholder="Enter password" autocomplete="off" autofocus />
             </form>
             <button type="button" onclick="submit()">Continue</button>
             <div class="footer">

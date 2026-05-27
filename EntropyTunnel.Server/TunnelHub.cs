@@ -12,7 +12,6 @@ public sealed class TunnelHub
     public readonly ConcurrentDictionary<string, AgentConnection> Connections = new(StringComparer.OrdinalIgnoreCase);
     public readonly ConcurrentDictionary<Guid, TaskCompletionSource<AgentResponse>> PendingRequests = new();
     public readonly ConcurrentDictionary<Guid, Channel<byte[]>> ActiveChannels = new();
-    public readonly ConcurrentDictionary<string, string> AccountPasswords = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly AgentStateStore _stateStore;
 
@@ -41,16 +40,7 @@ public sealed class TunnelHub
 
     public async Task SyncRulesToAgentAsync(string clientId)
     {
-        var state = _stateStore.Get(clientId);
-        if (state is null) return;
-
-        var payload = new SyncRulesPayload
-        {
-            ChaosRules = [.. state.ChaosRules.Values.OrderBy(r => r.Name)],
-            MockRules = [.. state.MockRules.Values.OrderBy(r => r.Name)],
-            RoutingRules = [.. state.RoutingRules.Values.OrderBy(r => r.Priority)],
-        };
-
+        var payload = await _stateStore.GetSyncPayloadAsync(clientId);
         await SendToAgentAsync(clientId, ControlFrameBuilder.Build(ControlFrame.SyncRules, payload));
     }
 

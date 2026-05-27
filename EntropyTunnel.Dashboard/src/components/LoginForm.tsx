@@ -2,12 +2,11 @@ import { FormEvent, useState } from "react";
 import styles from "./LoginForm.module.css";
 
 interface Props {
-  initialPassword?: string;
   onLogin: (password: string) => Promise<void>;
 }
 
-export function LoginForm({ initialPassword = "", onLogin }: Props) {
-  const [password, setPassword] = useState(initialPassword);
+export function LoginForm({ onLogin }: Props) {
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -38,6 +37,7 @@ export function LoginForm({ initialPassword = "", onLogin }: Props) {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           autoFocus
+          autoComplete="off"
           required
         />
 

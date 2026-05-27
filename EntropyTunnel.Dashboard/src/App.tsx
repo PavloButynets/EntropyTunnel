@@ -61,9 +61,9 @@ export default function App() {
 
   useEffect(() => {
     const establish = async () => {
-      if (initialToken) {
+      if (initialToken && routeClientId) {
         try {
-          await api.login(initialToken);
+          await api.login(routeClientId, initialToken);
           setAuthState("authenticated");
           return;
         } catch {
@@ -77,7 +77,7 @@ export default function App() {
   }, []);
 
   async function handleLogin(password: string) {
-    await api.login(password);
+    await api.login(routeClientId ?? "", password);
     setAuthState("authenticated");
   }
 

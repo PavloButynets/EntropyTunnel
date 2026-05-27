@@ -1,4 +1,19 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: entropy_tunnel
+      POSTGRES_USER: entropy
+      POSTGRES_PASSWORD: entropy
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U entropy -d entropy_tunnel"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   server:
     build:
       context: .
@@ -10,8 +25,12 @@ services:
       AllowedOrigins__1: "https://www.entropy-tunnel.xyz"
       AllowedOrigins__2: "http://ui"
       DashboardBaseUrl: "https://entropy-tunnel.xyz"
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=entropy_tunnel;Username=entropy;Password=entropy"
     ports:
       - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
   ui:
@@ -26,3 +45,6 @@ services:
     depends_on:
       - server
     restart: unless-stopped
+
+volumes:
+  postgres_data:

@@ -48,14 +48,20 @@ public static class TunnelHandler
         string agentAccountId = !string.IsNullOrEmpty(accountIdRaw) ? accountIdRaw : clientId;
         state.AccountId = agentAccountId;
 
-        // One password per account — shared across all agents of the same account
-        var password = hub.AccountPasswords.GetOrAdd(agentAccountId, _ => TunnelHub.GeneratePassword());
+        var baseUri = new Uri(dashboardBaseUrl);
+        state.PublicUrl = $"{baseUri.Scheme}://{clientId}.{baseUri.Host}{(baseUri.IsDefaultPort ? "" : ":" + baseUri.Port)}";
+
+        var password = TunnelHub.GeneratePassword();
         var authPayload = new SessionAuthPayload
         {
             DashboardUrl = $"{dashboardBaseUrl}/dashboard?token={password}",
             Token = password,
             Password = password,
         };
+
+        await stateStore.UpsertAccountAsync(agentAccountId, password);
+        await stateStore.UpsertAgentAsync(clientId, agentAccountId);
+
         await hub.SendToAgentAsync(clientId, ControlFrameBuilder.Build(ControlFrame.SessionAuth, authPayload));
         await hub.SyncRulesToAgentAsync(clientId);
 
@@ -103,8 +109,8 @@ public static class TunnelHandler
                     var entry = ControlFrameBuilder.Deserialize<RequestLogEntry>(json);
                     if (entry is not null)
                     {
-                        state.AddLogEntry(entry);
                         await sseMgr.BroadcastAsync(clientId, json);
+                        stateStore.EnqueueLogEntry(clientId, entry);
                     }
                     continue;
                 }

@@ -484,3 +484,5 @@ $RECYCLE.BIN/
 *.swp
 
 EntropyTunnel.Client/appsettings.Development.json
+.claude/
+thesis/

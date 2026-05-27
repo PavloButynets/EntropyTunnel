@@ -3,6 +3,7 @@ using System.Text;
 using System.Collections.Concurrent;
 using System.Text.Json;
 using EntropyTunnel.Client.Configuration;
+using EntropyTunnel.Client.Pipeline;
 using EntropyTunnel.Client.State;
 using EntropyTunnel.Core;
 using EntropyTunnel.Core.Models;
@@ -261,10 +262,10 @@ public sealed class TunnelService : BackgroundService
                 AppliedChaosRule = ctx.AppliedChaosRule,
                 AppliedMockRule = ctx.AppliedMockRule,
                 ResolvedTargetUrl = ctx.TargetUrl,
-                RequestHeaders = incoming.Headers,
+                RequestHeaders = HeaderMasker.Mask(incoming.Headers),
                 RequestBodyPreview = bodyPreview,
                 RequestContentLength = contentLength,
-                ResponseHeaders = responseHeadersForLog,
+                ResponseHeaders = HeaderMasker.Mask(responseHeadersForLog),
             }, ct);
         }
         catch (Exception ex)

@@ -38,12 +38,12 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 // Auth
-export async function login(password: string): Promise<void> {
+export async function login(clientId: string, password: string): Promise<void> {
   const res = await fetch(`${_apiBase}/api/auth/login`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ password }),
+    body: JSON.stringify({ clientId, password }),
   });
   if (!res.ok) throw new Error(`${res.status}`);
 }
