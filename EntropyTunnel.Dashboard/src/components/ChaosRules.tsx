@@ -150,7 +150,7 @@ export function ChaosRules({ rules, onRefresh }: Props) {
 
       {rules.length === 0 ? (
         <div className="empty-state">
-          No chaos rules yet — add one to start breaking things.
+          No chaos rules yet - add one to start breaking things.
         </div>
       ) : (
         <table>
@@ -319,7 +319,9 @@ export function ChaosRules({ rules, onRefresh }: Props) {
                   <label>Latency Distribution</label>
                   <select
                     value={form.latencyDistribution}
-                    onChange={(e) => set("latencyDistribution", e.target.value as any)}
+                    onChange={(e) =>
+                      set("latencyDistribution", e.target.value as any)
+                    }
                   >
                     <option value="Uniform">Uniform</option>
                     <option value="Gaussian">Gaussian</option>
@@ -330,7 +332,16 @@ export function ChaosRules({ rules, onRefresh }: Props) {
               </div>
 
               {form.latencyDistribution === "Gaussian" && (
-                <div style={{ padding: "8px", background: "#1a1a1a", borderRadius: "4px", fontSize: "12px", color: "#999", marginBottom: "12px" }}>
+                <div
+                  style={{
+                    padding: "8px",
+                    background: "#1a1a1a",
+                    borderRadius: "4px",
+                    fontSize: "12px",
+                    color: "#999",
+                    marginBottom: "12px",
+                  }}
+                >
                   Latency = mean, Jitter = standard deviation
                 </div>
               )}
@@ -417,7 +428,9 @@ export function ChaosRules({ rules, onRefresh }: Props) {
                   <label>Error Distribution</label>
                   <select
                     value={form.errorDistribution}
-                    onChange={(e) => set("errorDistribution", e.target.value as any)}
+                    onChange={(e) =>
+                      set("errorDistribution", e.target.value as any)
+                    }
                   >
                     <option value="Random">Random</option>
                     <option value="Poisson">Poisson</option>
@@ -441,7 +454,9 @@ export function ChaosRules({ rules, onRefresh }: Props) {
                     <input
                       type="number"
                       value={form.poissonBurstDurationMs}
-                      onChange={(e) => set("poissonBurstDurationMs", +e.target.value)}
+                      onChange={(e) =>
+                        set("poissonBurstDurationMs", +e.target.value)
+                      }
                     />
                   </div>
                 </div>
