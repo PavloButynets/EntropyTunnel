@@ -109,7 +109,7 @@ public static class AgentEndpoints
     {
         agentApi.MapGet("/rules/chaos", async (string clientId, AppDbContext db) =>
         {
-            var rows = await db.ChaosRules.Where(r => r.ClientId == clientId).ToListAsync();
+            var rows = await db.Rules.Where(r => r.ClientId == clientId && r.Type == "chaos").ToListAsync();
             return Results.Ok(rows.Select(r => JsonSerializer.Deserialize<ChaosRule>(r.Data)!).OrderBy(r => r.Name));
         });
 
@@ -123,7 +123,7 @@ public static class AgentEndpoints
 
         agentApi.MapPut("/rules/chaos/{id:guid}", async (string clientId, Guid id, ChaosRule rule, AppDbContext db, AgentStateStore store, TunnelHub hub) =>
         {
-            if (!await db.ChaosRules.AnyAsync(r => r.Id == id)) return Results.NotFound();
+            if (!await db.Rules.AnyAsync(r => r.Id == id && r.Type == "chaos")) return Results.NotFound();
             rule = rule with { Id = id };
             await store.SaveChaosRuleAsync(clientId, rule);
             await hub.SyncRulesToAgentAsync(clientId);
@@ -132,7 +132,7 @@ public static class AgentEndpoints
 
         agentApi.MapDelete("/rules/chaos/{id:guid}", async (string clientId, Guid id, AppDbContext db, AgentStateStore store, TunnelHub hub) =>
         {
-            if (!await db.ChaosRules.AnyAsync(r => r.Id == id)) return Results.NotFound();
+            if (!await db.Rules.AnyAsync(r => r.Id == id && r.Type == "chaos")) return Results.NotFound();
             await store.DeleteChaosRuleAsync(id);
             await hub.SyncRulesToAgentAsync(clientId);
             return Results.NoContent();
@@ -140,7 +140,7 @@ public static class AgentEndpoints
 
         agentApi.MapPatch("/rules/chaos/{id:guid}/toggle", async (string clientId, Guid id, AppDbContext db, AgentStateStore store, TunnelHub hub) =>
         {
-            var row = await db.ChaosRules.FirstOrDefaultAsync(r => r.Id == id);
+            var row = await db.Rules.FirstOrDefaultAsync(r => r.Id == id && r.Type == "chaos");
             if (row is null) return Results.NotFound();
             var rule = JsonSerializer.Deserialize<ChaosRule>(row.Data)!;
             var updated = rule with { IsEnabled = !rule.IsEnabled };
@@ -154,7 +154,7 @@ public static class AgentEndpoints
     {
         agentApi.MapGet("/rules/mocks", async (string clientId, AppDbContext db) =>
         {
-            var rows = await db.MockRules.Where(r => r.ClientId == clientId).ToListAsync();
+            var rows = await db.Rules.Where(r => r.ClientId == clientId && r.Type == "mock").ToListAsync();
             return Results.Ok(rows.Select(r => JsonSerializer.Deserialize<MockRule>(r.Data)!).OrderBy(r => r.Name));
         });
 
@@ -168,7 +168,7 @@ public static class AgentEndpoints
 
         agentApi.MapPut("/rules/mocks/{id:guid}", async (string clientId, Guid id, MockRule rule, AppDbContext db, AgentStateStore store, TunnelHub hub) =>
         {
-            if (!await db.MockRules.AnyAsync(r => r.Id == id)) return Results.NotFound();
+            if (!await db.Rules.AnyAsync(r => r.Id == id && r.Type == "mock")) return Results.NotFound();
             rule = rule with { Id = id };
             await store.SaveMockRuleAsync(clientId, rule);
             await hub.SyncRulesToAgentAsync(clientId);
@@ -177,7 +177,7 @@ public static class AgentEndpoints
 
         agentApi.MapDelete("/rules/mocks/{id:guid}", async (string clientId, Guid id, AppDbContext db, AgentStateStore store, TunnelHub hub) =>
         {
-            if (!await db.MockRules.AnyAsync(r => r.Id == id)) return Results.NotFound();
+            if (!await db.Rules.AnyAsync(r => r.Id == id && r.Type == "mock")) return Results.NotFound();
             await store.DeleteMockRuleAsync(id);
             await hub.SyncRulesToAgentAsync(clientId);
             return Results.NoContent();
@@ -185,7 +185,7 @@ public static class AgentEndpoints
 
         agentApi.MapPatch("/rules/mocks/{id:guid}/toggle", async (string clientId, Guid id, AppDbContext db, AgentStateStore store, TunnelHub hub) =>
         {
-            var row = await db.MockRules.FirstOrDefaultAsync(r => r.Id == id);
+            var row = await db.Rules.FirstOrDefaultAsync(r => r.Id == id && r.Type == "mock");
             if (row is null) return Results.NotFound();
             var rule = JsonSerializer.Deserialize<MockRule>(row.Data)!;
             var updated = rule with { IsEnabled = !rule.IsEnabled };
@@ -199,7 +199,7 @@ public static class AgentEndpoints
     {
         agentApi.MapGet("/rules/routing", async (string clientId, AppDbContext db) =>
         {
-            var rows = await db.RoutingRules.Where(r => r.ClientId == clientId).ToListAsync();
+            var rows = await db.Rules.Where(r => r.ClientId == clientId && r.Type == "routing").ToListAsync();
             return Results.Ok(rows.Select(r => JsonSerializer.Deserialize<RoutingRule>(r.Data)!).OrderBy(r => r.Priority));
         });
 
@@ -213,7 +213,7 @@ public static class AgentEndpoints
 
         agentApi.MapPut("/rules/routing/{id:guid}", async (string clientId, Guid id, RoutingRule rule, AppDbContext db, AgentStateStore store, TunnelHub hub) =>
         {
-            if (!await db.RoutingRules.AnyAsync(r => r.Id == id)) return Results.NotFound();
+            if (!await db.Rules.AnyAsync(r => r.Id == id && r.Type == "routing")) return Results.NotFound();
             rule = rule with { Id = id };
             await store.SaveRoutingRuleAsync(clientId, rule);
             await hub.SyncRulesToAgentAsync(clientId);
@@ -222,7 +222,7 @@ public static class AgentEndpoints
 
         agentApi.MapDelete("/rules/routing/{id:guid}", async (string clientId, Guid id, AppDbContext db, AgentStateStore store, TunnelHub hub) =>
         {
-            if (!await db.RoutingRules.AnyAsync(r => r.Id == id)) return Results.NotFound();
+            if (!await db.Rules.AnyAsync(r => r.Id == id && r.Type == "routing")) return Results.NotFound();
             await store.DeleteRoutingRuleAsync(id);
             await hub.SyncRulesToAgentAsync(clientId);
             return Results.NoContent();

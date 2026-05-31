@@ -10,12 +10,6 @@ public enum LatencyDistribution
 
     /// <summary>Gaussian with mean=latencyMs, stdDev=jitterMs (Box-Muller)</summary>
     Gaussian = 1,
-
-    /// <summary>Mixture of two Gaussians with specified weights</summary>
-    Bimodal = 2,
-
-    /// <summary>Exponential with rate lambda</summary>
-    Exponential = 3,
 }
 
 /// <summary>
@@ -53,16 +47,6 @@ public sealed record ChaosRule
     public int LatencyMs { get; init; }
     public int JitterMs { get; init; }
     public LatencyDistribution LatencyDistribution { get; init; } = LatencyDistribution.Uniform;
-
-    // Bimodal-specific (when LatencyDistribution == Bimodal)
-    public double BimodalMean2 { get; init; }
-    public double BimodalStdDev2 { get; init; }
-    /// <summary>Weight of the first Gaussian (0.0-1.0). Defaults to 0.95.</summary>
-    public double BimodalWeight1 { get; init; } = 0.95;
-
-    // Exponential-specific (when LatencyDistribution == Exponential)
-    /// <summary>Rate parameter for exponential distribution. Typical range 0.001–0.1.</summary>
-    public double ExponentialLambda { get; init; } = 0.02;
 
     // --- Error injection ---
     /// <summary>Probability 0.0–1.0 that this request gets a synthetic error response.</summary>

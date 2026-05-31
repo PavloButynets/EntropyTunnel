@@ -11,6 +11,10 @@ namespace EntropyTunnel.Server.State;
 
 public sealed class AgentStateStore(IDbContextFactory<AppDbContext> dbFactory)
 {
+    private const string TypeChaos = "chaos";
+    private const string TypeMock = "mock";
+    private const string TypeRouting = "routing";
+
     private readonly ConcurrentDictionary<string, AgentState> _agents =
         new(StringComparer.OrdinalIgnoreCase);
 
@@ -28,20 +32,24 @@ public sealed class AgentStateStore(IDbContextFactory<AppDbContext> dbFactory)
     public IEnumerable<(string ClientId, AgentState State)> GetAll() =>
         _agents.OrderBy(kvp => kvp.Key).Select(kvp => (kvp.Key, kvp.Value));
 
-    // Rules for agent sync
+    // Rules sync
 
     public async Task<SyncRulesPayload> GetSyncPayloadAsync(string clientId)
     {
         await using var db = await dbFactory.CreateDbContextAsync();
-        var chaosRows = await db.ChaosRules.Where(r => r.ClientId == clientId).ToListAsync();
-        var mockRows = await db.MockRules.Where(r => r.ClientId == clientId).ToListAsync();
-        var routingRows = await db.RoutingRules.Where(r => r.ClientId == clientId).ToListAsync();
+        var rows = await db.Rules.Where(r => r.ClientId == clientId).ToListAsync();
 
         return new SyncRulesPayload
         {
-            ChaosRules = [.. chaosRows.Select(r => JsonSerializer.Deserialize<ChaosRule>(r.Data)!).OrderBy(r => r.Name)],
-            MockRules = [.. mockRows.Select(r => JsonSerializer.Deserialize<MockRule>(r.Data)!).OrderBy(r => r.Name)],
-            RoutingRules = [.. routingRows.Select(r => JsonSerializer.Deserialize<RoutingRule>(r.Data)!).OrderBy(r => r.Priority)],
+            ChaosRules = [.. rows.Where(r => r.Type == TypeChaos)
+                .Select(r => JsonSerializer.Deserialize<ChaosRule>(r.Data)!)
+                .OrderBy(r => r.Name)],
+            MockRules = [.. rows.Where(r => r.Type == TypeMock)
+                .Select(r => JsonSerializer.Deserialize<MockRule>(r.Data)!)
+                .OrderBy(r => r.Name)],
+            RoutingRules = [.. rows.Where(r => r.Type == TypeRouting)
+                .Select(r => JsonSerializer.Deserialize<RoutingRule>(r.Data)!)
+                .OrderBy(r => r.Priority)],
         };
     }
 
@@ -70,61 +78,38 @@ public sealed class AgentStateStore(IDbContextFactory<AppDbContext> dbFactory)
         await db.SaveChangesAsync();
     }
 
-    // Chaos rule persistence
+    // Rule persistence
 
-    public async Task SaveChaosRuleAsync(string clientId, ChaosRule rule)
+    public Task SaveChaosRuleAsync(string clientId, ChaosRule rule) =>
+        SaveRuleAsync(clientId, TypeChaos, rule.Id, JsonSerializer.Serialize(rule));
+
+    public Task DeleteChaosRuleAsync(Guid id) => DeleteRuleAsync(id);
+
+    public Task SaveMockRuleAsync(string clientId, MockRule rule) =>
+        SaveRuleAsync(clientId, TypeMock, rule.Id, JsonSerializer.Serialize(rule));
+
+    public Task DeleteMockRuleAsync(Guid id) => DeleteRuleAsync(id);
+
+    public Task SaveRoutingRuleAsync(string clientId, RoutingRule rule) =>
+        SaveRuleAsync(clientId, TypeRouting, rule.Id, JsonSerializer.Serialize(rule));
+
+    public Task DeleteRoutingRuleAsync(Guid id) => DeleteRuleAsync(id);
+
+    private async Task SaveRuleAsync(string clientId, string type, Guid id, string data)
     {
         await using var db = await dbFactory.CreateDbContextAsync();
-        var existing = await db.ChaosRules.FindAsync(rule.Id);
+        var existing = await db.Rules.FindAsync(id);
         if (existing is null)
-            db.ChaosRules.Add(new ChaosRuleRow { Id = rule.Id, ClientId = clientId, Data = JsonSerializer.Serialize(rule) });
+            db.Rules.Add(new RuleRow { Id = id, ClientId = clientId, Type = type, Data = data });
         else
-            existing.Data = JsonSerializer.Serialize(rule);
+            existing.Data = data;
         await db.SaveChangesAsync();
     }
 
-    public async Task DeleteChaosRuleAsync(Guid id)
+    private async Task DeleteRuleAsync(Guid id)
     {
         await using var db = await dbFactory.CreateDbContextAsync();
-        await db.ChaosRules.Where(r => r.Id == id).ExecuteDeleteAsync();
-    }
-
-    // Mock rule persistence
-
-    public async Task SaveMockRuleAsync(string clientId, MockRule rule)
-    {
-        await using var db = await dbFactory.CreateDbContextAsync();
-        var existing = await db.MockRules.FindAsync(rule.Id);
-        if (existing is null)
-            db.MockRules.Add(new MockRuleRow { Id = rule.Id, ClientId = clientId, Data = JsonSerializer.Serialize(rule) });
-        else
-            existing.Data = JsonSerializer.Serialize(rule);
-        await db.SaveChangesAsync();
-    }
-
-    public async Task DeleteMockRuleAsync(Guid id)
-    {
-        await using var db = await dbFactory.CreateDbContextAsync();
-        await db.MockRules.Where(r => r.Id == id).ExecuteDeleteAsync();
-    }
-
-    // Routing rule persistence
-
-    public async Task SaveRoutingRuleAsync(string clientId, RoutingRule rule)
-    {
-        await using var db = await dbFactory.CreateDbContextAsync();
-        var existing = await db.RoutingRules.FindAsync(rule.Id);
-        if (existing is null)
-            db.RoutingRules.Add(new RoutingRuleRow { Id = rule.Id, ClientId = clientId, Data = JsonSerializer.Serialize(rule) });
-        else
-            existing.Data = JsonSerializer.Serialize(rule);
-        await db.SaveChangesAsync();
-    }
-
-    public async Task DeleteRoutingRuleAsync(Guid id)
-    {
-        await using var db = await dbFactory.CreateDbContextAsync();
-        await db.RoutingRules.Where(r => r.Id == id).ExecuteDeleteAsync();
+        await db.Rules.Where(r => r.Id == id).ExecuteDeleteAsync();
     }
 
     // Log

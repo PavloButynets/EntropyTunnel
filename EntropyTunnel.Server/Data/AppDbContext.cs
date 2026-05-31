@@ -6,9 +6,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 {
     public DbSet<AccountRow> Accounts => Set<AccountRow>();
     public DbSet<AgentRow> Agents => Set<AgentRow>();
-    public DbSet<ChaosRuleRow> ChaosRules => Set<ChaosRuleRow>();
-    public DbSet<MockRuleRow> MockRules => Set<MockRuleRow>();
-    public DbSet<RoutingRuleRow> RoutingRules => Set<RoutingRuleRow>();
+    public DbSet<RuleRow> Rules => Set<RuleRow>();
     public DbSet<LogRow> RequestLog => Set<LogRow>();
 
     protected override void OnModelCreating(ModelBuilder model)
@@ -22,23 +20,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
              .HasForeignKey(x => x.AccountId).OnDelete(DeleteBehavior.Cascade);
         });
 
-        model.Entity<ChaosRuleRow>(e =>
+        model.Entity<RuleRow>(e =>
         {
-            e.ToTable("chaos_rules");
-            e.HasOne<AgentRow>().WithMany()
-             .HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.Cascade);
-        });
-
-        model.Entity<MockRuleRow>(e =>
-        {
-            e.ToTable("mock_rules");
-            e.HasOne<AgentRow>().WithMany()
-             .HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.Cascade);
-        });
-
-        model.Entity<RoutingRuleRow>(e =>
-        {
-            e.ToTable("routing_rules");
+            e.ToTable("rules").HasKey(x => x.Id);
+            e.HasIndex(x => new { x.ClientId, x.Type });
             e.HasOne<AgentRow>().WithMany()
              .HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.Cascade);
         });

@@ -22,8 +22,6 @@ public static class DistributionSampler
         {
             LatencyDistribution.Uniform => SampleUniform(rule.LatencyMs, rule.JitterMs),
             LatencyDistribution.Gaussian => SampleGaussian(rule.LatencyMs, rule.JitterMs),
-            LatencyDistribution.Bimodal => SampleBimodal(rule),
-            LatencyDistribution.Exponential => SampleExponential(rule.ExponentialLambda, rule.LatencyMs),
             _ => rule.LatencyMs,
         };
 
@@ -67,41 +65,6 @@ public static class DistributionSampler
 
         double randStdNormal = Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Sin(2.0 * Math.PI * u2);
         return mean + stdDev * randStdNormal;
-    }
-
-    /// <summary>
-    /// Bimodal: mixture of two Gaussians with weight1 probability of first.
-    /// </summary>
-    private static double SampleBimodal(ChaosRule rule)
-    {
-        double weight = rule.BimodalWeight1;
-        if (weight < 0) weight = 0.95;
-        if (weight > 1) weight = 0.95;
-
-        bool useFirst = Random.Shared.NextDouble() < weight;
-
-        if (useFirst)
-            return SampleGaussian(rule.LatencyMs, rule.JitterMs);
-        else
-            return SampleGaussian((int)rule.BimodalMean2, (int)rule.BimodalStdDev2);
-    }
-
-    /// <summary>
-    /// Exponential with rate lambda: samples from Exp(lambda),
-    /// then scales by the rule's base latency.
-    /// Result = base * sample_from_exp(lambda)
-    /// </summary>
-    private static double SampleExponential(double lambda, int baseLatencyMs)
-    {
-        if (lambda <= 0) lambda = 0.02;
-        if (baseLatencyMs <= 0) return 0;
-
-        // Sample from Exp(lambda): -ln(1 - u) / lambda
-        double u = Random.Shared.NextDouble();
-        double expSample = -Math.Log(1.0 - u) / lambda;
-
-        // Scale to base latency
-        return baseLatencyMs * expSample;
     }
 
     // Error Samplers
