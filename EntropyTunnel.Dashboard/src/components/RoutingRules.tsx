@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { RoutingRule } from "../types";
 import * as api from "../api/client";
+import { useT } from "../i18n";
 
 interface Props {
   rules: RoutingRule[];
@@ -18,20 +19,24 @@ const DEFAULT_FORM: FormState = {
   priority: 0,
 };
 
-function validate(form: FormState): Record<string, string> {
+function validate(
+  form: FormState,
+  t: ReturnType<typeof useT>["t"],
+): Record<string, string> {
   const e: Record<string, string> = {};
-  if (!form.name.trim()) e.name = "Name is required";
-  if (!form.pathPattern.trim()) e.pathPattern = "Path pattern is required";
+  if (!form.name.trim()) e.name = t.routingValidName;
+  if (!form.pathPattern.trim()) e.pathPattern = t.routingValidPath;
   if (!form.targetBaseUrl.trim()) {
-    e.targetBaseUrl = "Target URL is required";
+    e.targetBaseUrl = t.routingValidTarget;
   } else if (!/^https?:\/\/.+/.test(form.targetBaseUrl)) {
-    e.targetBaseUrl = "Must start with http:// or https://";
+    e.targetBaseUrl = t.routingValidTargetFormat;
   }
-  if (form.priority < 0) e.priority = "Priority must be ≥ 0";
+  if (form.priority < 0) e.priority = t.routingValidPriority;
   return e;
 }
 
 export function RoutingRules({ rules, onRefresh }: Props) {
+  const { t } = useT();
   const [mode, setMode] = useState<ModalMode>("none");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
@@ -74,7 +79,7 @@ export function RoutingRules({ rules, onRefresh }: Props) {
   }
 
   async function handleSave() {
-    const errs = validate(form);
+    const errs = validate(form, t);
     if (Object.keys(errs).length > 0) {
       setErrors(errs);
       return;
@@ -98,7 +103,7 @@ export function RoutingRules({ rules, onRefresh }: Props) {
   }
 
   async function handleDelete(rule: RoutingRule) {
-    if (!confirm(`Delete routing rule "${rule.name}"?`)) return;
+    if (!confirm(t.routingDeleteConfirm(rule.name))) return;
     await api.deleteRoutingRule(rule.id);
     onRefresh();
   }
@@ -114,27 +119,24 @@ export function RoutingRules({ rules, onRefresh }: Props) {
         }}
       >
         <p style={{ color: "var(--text-muted)", fontSize: 13 }}>
-          Route path prefixes to different local services (e.g. /api/* → :5000,
-          rest → :5173).
+          {t.routingDesc}
         </p>
         <button className="primary" onClick={openCreate}>
-          + Add Route
+          {t.routingAdd}
         </button>
       </div>
 
       {rules.length === 0 ? (
-        <div className="empty-state">
-          No routing rules — all traffic goes to the default local port.
-        </div>
+        <div className="empty-state">{t.routingEmpty}</div>
       ) : (
         <table>
           <thead>
             <tr>
-              <th>Priority</th>
-              <th>Name</th>
-              <th>Pattern</th>
-              <th>Target</th>
-              <th>Enabled</th>
+              <th>{t.priority}</th>
+              <th>{t.name}</th>
+              <th>{t.pattern}</th>
+              <th>{t.routingTarget}</th>
+              <th>{t.enabled}</th>
               <th></th>
             </tr>
           </thead>
@@ -164,12 +166,12 @@ export function RoutingRules({ rules, onRefresh }: Props) {
                 </td>
                 <td>
                   <div className="actions">
-                    <button onClick={() => openEdit(rule)}>Edit</button>
+                    <button onClick={() => openEdit(rule)}>{t.edit}</button>
                     <button
                       className="danger"
                       onClick={() => handleDelete(rule)}
                     >
-                      Delete
+                      {t.delete}
                     </button>
                   </div>
                 </td>
@@ -187,7 +189,7 @@ export function RoutingRules({ rules, onRefresh }: Props) {
           <div className="modal">
             <div className="modal-header">
               <h3>
-                {mode === "edit" ? "Edit Routing Rule" : "New Routing Rule"}
+                {mode === "edit" ? t.routingEditTitle : t.routingNewTitle}
               </h3>
               <button className="icon" onClick={closeModal}>
                 ✕
@@ -204,7 +206,7 @@ export function RoutingRules({ rules, onRefresh }: Props) {
 
               <div className="form-row">
                 <div className="form-group">
-                  <label>Rule Name *</label>
+                  <label>{t.chaosRuleName}</label>
                   <input
                     value={form.name}
                     onChange={(e) => set("name", e.target.value)}
@@ -216,7 +218,7 @@ export function RoutingRules({ rules, onRefresh }: Props) {
                   )}
                 </div>
                 <div className="form-group">
-                  <label>Priority (lower = matched first)</label>
+                  <label>{t.routingPriorityField}</label>
                   <input
                     type="number"
                     min={0}
@@ -231,7 +233,7 @@ export function RoutingRules({ rules, onRefresh }: Props) {
               </div>
 
               <div className="form-group">
-                <label>Path Pattern *</label>
+                <label>{t.chaosPathPattern}</label>
                 <input
                   value={form.pathPattern}
                   onChange={(e) => set("pathPattern", e.target.value)}
@@ -244,7 +246,7 @@ export function RoutingRules({ rules, onRefresh }: Props) {
               </div>
 
               <div className="form-group">
-                <label>Target Base URL *</label>
+                <label>{t.routingTargetUrl}</label>
                 <input
                   value={form.targetBaseUrl}
                   onChange={(e) => set("targetBaseUrl", e.target.value)}
@@ -269,23 +271,23 @@ export function RoutingRules({ rules, onRefresh }: Props) {
                     className={`toggle ${form.isEnabled ? "on" : ""}`}
                     onClick={() => set("isEnabled", !form.isEnabled)}
                   />
-                  {form.isEnabled ? "Enabled" : "Disabled"}
+                  {form.isEnabled ? t.enabled : t.disabled}
                 </label>
               </div>
             </div>
 
             <div className="modal-footer">
-              <button onClick={closeModal}>Cancel</button>
+              <button onClick={closeModal}>{t.cancel}</button>
               <button
                 className="primary"
                 onClick={handleSave}
                 disabled={saving}
               >
                 {saving
-                  ? "Saving…"
+                  ? t.saving
                   : mode === "edit"
-                    ? "Save Changes"
-                    : "Add Route"}
+                    ? t.saveChanges
+                    : t.routingAddBtn}
               </button>
             </div>
           </div>

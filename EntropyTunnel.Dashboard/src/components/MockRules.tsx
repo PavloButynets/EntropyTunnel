@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { MockRule } from "../types";
 import * as api from "../api/client";
+import { useT } from "../i18n";
 
 interface Props {
   rules: MockRule[];
@@ -20,13 +21,16 @@ const DEFAULT_FORM: FormState = {
   responseBody: '{\n  "data": []\n}',
 };
 
-function validate(form: FormState): Record<string, string> {
+function validate(
+  form: FormState,
+  t: ReturnType<typeof useT>["t"],
+): Record<string, string> {
   const e: Record<string, string> = {};
-  if (!form.name.trim()) e.name = "Name is required";
-  if (!form.pathPattern.trim()) e.pathPattern = "Path pattern is required";
+  if (!form.name.trim()) e.name = t.mockValidName;
+  if (!form.pathPattern.trim()) e.pathPattern = t.mockValidPath;
   if (form.statusCode < 100 || form.statusCode > 599)
-    e.statusCode = "Must be a valid HTTP status (100–599)";
-  if (!form.contentType.trim()) e.contentType = "Content-Type is required";
+    e.statusCode = t.mockValidStatus;
+  if (!form.contentType.trim()) e.contentType = t.mockValidContentType;
   return e;
 }
 
@@ -37,6 +41,7 @@ function statusBadge(code: number) {
 }
 
 export function MockRules({ rules, onRefresh }: Props) {
+  const { t } = useT();
   const [mode, setMode] = useState<ModalMode>("none");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
@@ -80,7 +85,7 @@ export function MockRules({ rules, onRefresh }: Props) {
   }
 
   async function handleSave() {
-    const errs = validate(form);
+    const errs = validate(form, t);
     if (Object.keys(errs).length > 0) {
       setErrors(errs);
       return;
@@ -116,7 +121,7 @@ export function MockRules({ rules, onRefresh }: Props) {
   }
 
   async function handleDelete(rule: MockRule) {
-    if (!confirm(`Delete mock "${rule.name}"?`)) return;
+    if (!confirm(t.mockDeleteConfirm(rule.name))) return;
     await api.deleteMockRule(rule.id);
     onRefresh();
   }
@@ -132,25 +137,25 @@ export function MockRules({ rules, onRefresh }: Props) {
         }}
       >
         <p style={{ color: "var(--text-muted)", fontSize: 13 }}>
-          Return canned responses — useful when the backend isn't ready.
+          {t.mockDesc}
         </p>
         <button className="primary" onClick={openCreate}>
-          + Add Mock
+          {t.mockAdd}
         </button>
       </div>
 
       {rules.length === 0 ? (
-        <div className="empty-state">No mock responses yet.</div>
+        <div className="empty-state">{t.mockEmpty}</div>
       ) : (
         <table>
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Pattern</th>
-              <th>Method</th>
-              <th>Status</th>
-              <th>Content-Type</th>
-              <th>Enabled</th>
+              <th>{t.name}</th>
+              <th>{t.pattern}</th>
+              <th>{t.method}</th>
+              <th>{t.logStatus}</th>
+              <th>{t.mockContentType}</th>
+              <th>{t.enabled}</th>
               <th></th>
             </tr>
           </thead>
@@ -165,7 +170,7 @@ export function MockRules({ rules, onRefresh }: Props) {
                 </td>
                 <td>
                   <span className="badge badge-muted">
-                    {rule.method ?? "ANY"}
+                    {rule.method ?? t.any}
                   </span>
                 </td>
                 <td>{statusBadge(rule.statusCode)}</td>
@@ -181,12 +186,12 @@ export function MockRules({ rules, onRefresh }: Props) {
                 </td>
                 <td>
                   <div className="actions">
-                    <button onClick={() => openEdit(rule)}>Edit</button>
+                    <button onClick={() => openEdit(rule)}>{t.edit}</button>
                     <button
                       className="danger"
                       onClick={() => handleDelete(rule)}
                     >
-                      Delete
+                      {t.delete}
                     </button>
                   </div>
                 </td>
@@ -204,7 +209,7 @@ export function MockRules({ rules, onRefresh }: Props) {
           <div className="modal">
             <div className="modal-header">
               <h3>
-                {mode === "edit" ? "Edit Mock Response" : "New Mock Response"}
+                {mode === "edit" ? t.mockEditTitle : t.mockNewTitle}
               </h3>
               <button className="icon" onClick={closeModal}>
                 ✕
@@ -221,7 +226,7 @@ export function MockRules({ rules, onRefresh }: Props) {
 
               <div className="form-row">
                 <div className="form-group">
-                  <label>Rule Name *</label>
+                  <label>{t.chaosRuleName}</label>
                   <input
                     value={form.name}
                     onChange={(e) => set("name", e.target.value)}
@@ -233,12 +238,12 @@ export function MockRules({ rules, onRefresh }: Props) {
                   )}
                 </div>
                 <div className="form-group">
-                  <label>HTTP Method</label>
+                  <label>{t.chaosHttpMethod}</label>
                   <select
                     value={form.method ?? ""}
                     onChange={(e) => set("method", e.target.value || null)}
                   >
-                    <option value="">Any</option>
+                    <option value="">{t.any}</option>
                     {["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"].map(
                       (m) => (
                         <option key={m} value={m}>
@@ -251,7 +256,7 @@ export function MockRules({ rules, onRefresh }: Props) {
               </div>
 
               <div className="form-group">
-                <label>Path Pattern *</label>
+                <label>{t.chaosPathPattern}</label>
                 <input
                   value={form.pathPattern}
                   onChange={(e) => set("pathPattern", e.target.value)}
@@ -265,7 +270,7 @@ export function MockRules({ rules, onRefresh }: Props) {
 
               <div className="form-row">
                 <div className="form-group">
-                  <label>Status Code *</label>
+                  <label>{t.mockStatusCode}</label>
                   <input
                     type="number"
                     value={form.statusCode}
@@ -277,7 +282,7 @@ export function MockRules({ rules, onRefresh }: Props) {
                   )}
                 </div>
                 <div className="form-group">
-                  <label>Content-Type *</label>
+                  <label>{t.mockContentTypeField}</label>
                   <select
                     value={form.contentType}
                     onChange={(e) => set("contentType", e.target.value)}
@@ -298,7 +303,7 @@ export function MockRules({ rules, onRefresh }: Props) {
               </div>
 
               <div className="form-group">
-                <label>Response Body</label>
+                <label>{t.mockResponseBody}</label>
                 <textarea
                   value={form.responseBody}
                   onChange={(e) => set("responseBody", e.target.value)}
@@ -319,23 +324,23 @@ export function MockRules({ rules, onRefresh }: Props) {
                     className={`toggle ${form.isEnabled ? "on" : ""}`}
                     onClick={() => set("isEnabled", !form.isEnabled)}
                   />
-                  {form.isEnabled ? "Enabled" : "Disabled"}
+                  {form.isEnabled ? t.enabled : t.disabled}
                 </label>
               </div>
             </div>
 
             <div className="modal-footer">
-              <button onClick={closeModal}>Cancel</button>
+              <button onClick={closeModal}>{t.cancel}</button>
               <button
                 className="primary"
                 onClick={handleSave}
                 disabled={saving}
               >
                 {saving
-                  ? "Saving…"
+                  ? t.saving
                   : mode === "edit"
-                    ? "Save Changes"
-                    : "Add Mock"}
+                    ? t.saveChanges
+                    : t.mockAddBtn}
               </button>
             </div>
           </div>

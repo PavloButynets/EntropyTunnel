@@ -1,4 +1,5 @@
 import { FormEvent, useState } from "react";
+import { useT } from "../i18n";
 import styles from "./LoginForm.module.css";
 
 interface Props {
@@ -6,6 +7,7 @@ interface Props {
 }
 
 export function LoginForm({ onLogin }: Props) {
+  const { t } = useT();
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -17,7 +19,7 @@ export function LoginForm({ onLogin }: Props) {
     try {
       await onLogin(password);
     } catch {
-      setError("Invalid password. Check the agent banner.");
+      setError(t.loginError);
     } finally {
       setLoading(false);
     }
@@ -28,12 +30,12 @@ export function LoginForm({ onLogin }: Props) {
       <form className={styles.card} onSubmit={handleSubmit}>
         <div className={styles.icon}>⚡</div>
         <h1 className={styles.title}>EntropyTunnel</h1>
-        <p className={styles.sub}>Enter your account password to continue</p>
+        <p className={styles.sub}>{t.loginSub}</p>
 
         <input
           className={styles.input}
           type="password"
-          placeholder="Account password"
+          placeholder={t.loginPlaceholder}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           autoFocus
@@ -44,7 +46,7 @@ export function LoginForm({ onLogin }: Props) {
         {error && <p className={styles.error}>{error}</p>}
 
         <button className={styles.btn} type="submit" disabled={loading}>
-          {loading ? "Signing in…" : "Sign in"}
+          {loading ? t.loginSigningIn : t.loginSignIn}
         </button>
       </form>
     </div>

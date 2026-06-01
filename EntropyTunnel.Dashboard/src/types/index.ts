@@ -1,6 +1,3 @@
-export type LatencyDistribution = "Uniform" | "Gaussian" | "Bimodal" | "Exponential";
-export type ErrorDistribution = "Random" | "Poisson";
-
 export interface ChaosRule {
   id: string;
   name: string;
@@ -9,17 +6,9 @@ export interface ChaosRule {
   isEnabled: boolean;
   latencyMs: number;
   jitterMs: number;
-  latencyDistribution: LatencyDistribution;
-  bimodalMean2: number;
-  bimodalStdDev2: number;
-  bimodalWeight1: number;
-  exponentialLambda: number;
   errorRate: number; // 0.0 – 1.0
   errorStatusCode: number;
   errorBody: string;
-  errorDistribution: ErrorDistribution;
-  poissonLambda: number;
-  poissonBurstDurationMs: number;
 }
 
 export interface MockRule {

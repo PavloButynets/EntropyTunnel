@@ -100,3 +100,42 @@
   outline: none;
   border-color: var(--accent-h);
 }
+
+.iconToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: var(--surface2);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.iconToggle:hover {
+  color: var(--text);
+  border-color: var(--accent-h);
+  background: var(--border);
+}
+
+.langToggle {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  padding: 3px 8px;
+  background: var(--surface2);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.langToggle:hover {
+  color: var(--text);
+  border-color: var(--accent-h);
+}

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { ChaosRule } from "../types";
 import * as api from "../api/client";
+import { useT } from "../i18n";
 
 interface Props {
   rules: ChaosRule[];
@@ -8,7 +9,6 @@ interface Props {
 }
 
 type ModalMode = "none" | "create" | "edit";
-
 type FormState = Omit<ChaosRule, "id">;
 
 const DEFAULT_FORM: FormState = {
@@ -18,42 +18,34 @@ const DEFAULT_FORM: FormState = {
   isEnabled: true,
   latencyMs: 0,
   jitterMs: 0,
-  latencyDistribution: "Uniform",
-  bimodalMean2: 0,
-  bimodalStdDev2: 0,
-  bimodalWeight1: 0.95,
-  exponentialLambda: 0.02,
   errorRate: 0,
   errorStatusCode: 502,
   errorBody: "Chaos Engineering: Injected Error",
-  errorDistribution: "Random",
-  poissonLambda: 0.1,
-  poissonBurstDurationMs: 2000,
 };
 
-// Validation
-function validate(form: FormState): Record<string, string> {
+function validate(
+  form: FormState,
+  t: ReturnType<typeof useT>["t"],
+): Record<string, string> {
   const e: Record<string, string> = {};
-  if (!form.name.trim()) e.name = "Name is required";
-  if (!form.pathPattern.trim()) e.pathPattern = "Path pattern is required";
-  if (form.latencyMs < 0) e.latencyMs = "Must be ≥ 0";
-  if (form.jitterMs < 0) e.jitterMs = "Must be ≥ 0";
-  if (form.errorRate < 0 || form.errorRate > 1) e.errorRate = "Must be 0–100 %";
+  if (!form.name.trim()) e.name = t.chaosValidName;
+  if (!form.pathPattern.trim()) e.pathPattern = t.chaosValidPath;
+  if (form.latencyMs < 0) e.latencyMs = t.chaosValidGte0;
+  if (form.jitterMs < 0) e.jitterMs = t.chaosValidGte0;
+  if (form.errorRate < 0 || form.errorRate > 1) e.errorRate = t.chaosValidErrorRate;
   if (form.errorStatusCode < 100 || form.errorStatusCode > 599)
-    e.errorStatusCode = "Must be a valid HTTP status (100–599)";
+    e.errorStatusCode = t.chaosValidStatus;
   return e;
 }
 
-// Component
 export function ChaosRules({ rules, onRefresh }: Props) {
+  const { t } = useT();
   const [mode, setMode] = useState<ModalMode>("none");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [apiError, setApiError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-
-  // Actions
 
   function openCreate() {
     setForm(DEFAULT_FORM);
@@ -81,7 +73,6 @@ export function ChaosRules({ rules, onRefresh }: Props) {
 
   function set<K extends keyof FormState>(field: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [field]: value }));
-    // Clear the field error as soon as the user edits it
     if (errors[field])
       setErrors((e) => {
         const n = { ...e };
@@ -91,12 +82,11 @@ export function ChaosRules({ rules, onRefresh }: Props) {
   }
 
   async function handleSave() {
-    const errs = validate(form);
+    const errs = validate(form, t);
     if (Object.keys(errs).length > 0) {
       setErrors(errs);
       return;
     }
-
     setSaving(true);
     setApiError(null);
     try {
@@ -119,17 +109,16 @@ export function ChaosRules({ rules, onRefresh }: Props) {
       await api.toggleChaosRule(id);
       onRefresh();
     } catch {
-      /* ignore transient errors */
+      /* ignore */
     }
   }
 
   async function handleDelete(rule: ChaosRule) {
-    if (!confirm(`Delete chaos rule "${rule.name}"?`)) return;
+    if (!confirm(t.chaosDeleteConfirm(rule.name))) return;
     await api.deleteChaosRule(rule.id);
     onRefresh();
   }
 
-  // Render
   return (
     <section>
       <div
@@ -141,27 +130,25 @@ export function ChaosRules({ rules, onRefresh }: Props) {
         }}
       >
         <p style={{ color: "var(--text-muted)", fontSize: 13 }}>
-          Inject latency and errors for matching requests at runtime.
+          {t.chaosDesc}
         </p>
         <button className="primary" onClick={openCreate}>
-          + Add Rule
+          {t.chaosAdd}
         </button>
       </div>
 
       {rules.length === 0 ? (
-        <div className="empty-state">
-          No chaos rules yet - add one to start breaking things.
-        </div>
+        <div className="empty-state">{t.chaosEmpty}</div>
       ) : (
         <table>
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Pattern</th>
-              <th>Method</th>
-              <th>Latency</th>
-              <th>Error Rate</th>
-              <th>Enabled</th>
+              <th>{t.name}</th>
+              <th>{t.pattern}</th>
+              <th>{t.method}</th>
+              <th>{t.chaosLatency}</th>
+              <th>{t.chaosErrorRate}</th>
+              <th>{t.enabled}</th>
               <th></th>
             </tr>
           </thead>
@@ -176,7 +163,7 @@ export function ChaosRules({ rules, onRefresh }: Props) {
                 </td>
                 <td>
                   <span className="badge badge-muted">
-                    {rule.method ?? "ANY"}
+                    {rule.method ?? t.any}
                   </span>
                 </td>
                 <td>
@@ -203,17 +190,14 @@ export function ChaosRules({ rules, onRefresh }: Props) {
                   <button
                     className={`toggle ${rule.isEnabled ? "on" : ""}`}
                     onClick={() => handleToggle(rule.id)}
-                    title={rule.isEnabled ? "Disable" : "Enable"}
+                    title={rule.isEnabled ? t.disabled : t.enabled}
                   />
                 </td>
                 <td>
                   <div className="actions">
-                    <button onClick={() => openEdit(rule)}>Edit</button>
-                    <button
-                      className="danger"
-                      onClick={() => handleDelete(rule)}
-                    >
-                      Delete
+                    <button onClick={() => openEdit(rule)}>{t.edit}</button>
+                    <button className="danger" onClick={() => handleDelete(rule)}>
+                      {t.delete}
                     </button>
                   </div>
                 </td>
@@ -230,10 +214,8 @@ export function ChaosRules({ rules, onRefresh }: Props) {
         >
           <div className="modal">
             <div className="modal-header">
-              <h3>{mode === "edit" ? "Edit Chaos Rule" : "New Chaos Rule"}</h3>
-              <button className="icon" onClick={closeModal}>
-                ✕
-              </button>
+              <h3>{mode === "edit" ? t.chaosEditTitle : t.chaosNewTitle}</h3>
+              <button className="icon" onClick={closeModal}>✕</button>
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -246,51 +228,43 @@ export function ChaosRules({ rules, onRefresh }: Props) {
 
               <div className="form-row">
                 <div className="form-group">
-                  <label>Rule Name *</label>
+                  <label>{t.chaosRuleName}</label>
                   <input
                     value={form.name}
                     onChange={(e) => set("name", e.target.value)}
                     placeholder="Slow checkout"
                     className={errors.name ? "input-error" : ""}
                   />
-                  {errors.name && (
-                    <span className="field-error">{errors.name}</span>
-                  )}
+                  {errors.name && <span className="field-error">{errors.name}</span>}
                 </div>
                 <div className="form-group">
-                  <label>HTTP Method</label>
+                  <label>{t.chaosHttpMethod}</label>
                   <select
                     value={form.method ?? ""}
                     onChange={(e) => set("method", e.target.value || null)}
                   >
-                    <option value="">Any</option>
-                    {["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"].map(
-                      (m) => (
-                        <option key={m} value={m}>
-                          {m}
-                        </option>
-                      ),
-                    )}
+                    <option value="">{t.any}</option>
+                    {["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"].map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
                   </select>
                 </div>
               </div>
 
               <div className="form-group">
-                <label>Path Pattern *</label>
+                <label>{t.chaosPathPattern}</label>
                 <input
                   value={form.pathPattern}
                   onChange={(e) => set("pathPattern", e.target.value)}
                   placeholder="/api/checkout  or  /api/*  or  **"
                   className={errors.pathPattern ? "input-error" : ""}
                 />
-                {errors.pathPattern && (
-                  <span className="field-error">{errors.pathPattern}</span>
-                )}
+                {errors.pathPattern && <span className="field-error">{errors.pathPattern}</span>}
               </div>
 
               <div className="form-row">
                 <div className="form-group">
-                  <label>Latency (ms)</label>
+                  <label>{t.chaosLatencyMs}</label>
                   <input
                     type="number"
                     min={0}
@@ -298,12 +272,10 @@ export function ChaosRules({ rules, onRefresh }: Props) {
                     onChange={(e) => set("latencyMs", +e.target.value)}
                     className={errors.latencyMs ? "input-error" : ""}
                   />
-                  {errors.latencyMs && (
-                    <span className="field-error">{errors.latencyMs}</span>
-                  )}
+                  {errors.latencyMs && <span className="field-error">{errors.latencyMs}</span>}
                 </div>
                 <div className="form-group">
-                  <label>Jitter ±(ms)</label>
+                  <label>{t.chaosJitterMs}</label>
                   <input
                     type="number"
                     min={0}
@@ -311,107 +283,27 @@ export function ChaosRules({ rules, onRefresh }: Props) {
                     onChange={(e) => set("jitterMs", +e.target.value)}
                     className={errors.jitterMs ? "input-error" : ""}
                   />
-                  {errors.jitterMs && (
-                    <span className="field-error">{errors.jitterMs}</span>
-                  )}
-                </div>
-                <div className="form-group">
-                  <label>Latency Distribution</label>
-                  <select
-                    value={form.latencyDistribution}
-                    onChange={(e) =>
-                      set("latencyDistribution", e.target.value as any)
-                    }
-                  >
-                    <option value="Uniform">Uniform</option>
-                    <option value="Gaussian">Gaussian</option>
-                    <option value="Bimodal">Bimodal</option>
-                    <option value="Exponential">Exponential</option>
-                  </select>
+                  {errors.jitterMs && <span className="field-error">{errors.jitterMs}</span>}
                 </div>
               </div>
 
-              {form.latencyDistribution === "Gaussian" && (
-                <div
-                  style={{
-                    padding: "8px",
-                    background: "#1a1a1a",
-                    borderRadius: "4px",
-                    fontSize: "12px",
-                    color: "#999",
-                    marginBottom: "12px",
-                  }}
-                >
-                  Latency = mean, Jitter = standard deviation
-                </div>
-              )}
-
-              {form.latencyDistribution === "Bimodal" && (
-                <div className="form-row">
-                  <div className="form-group">
-                    <label>Mean 2 (ms)</label>
-                    <input
-                      type="number"
-                      value={form.bimodalMean2}
-                      onChange={(e) => set("bimodalMean2", +e.target.value)}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>StdDev 2 (ms)</label>
-                    <input
-                      type="number"
-                      value={form.bimodalStdDev2}
-                      onChange={(e) => set("bimodalStdDev2", +e.target.value)}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Weight 1 (0–1)</label>
-                    <input
-                      type="number"
-                      min={0}
-                      max={1}
-                      step={0.05}
-                      value={form.bimodalWeight1}
-                      onChange={(e) => set("bimodalWeight1", +e.target.value)}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {form.latencyDistribution === "Exponential" && (
-                <div className="form-group">
-                  <label>Lambda (rate, typical 0.001–0.1)</label>
-                  <input
-                    type="number"
-                    step={0.001}
-                    value={form.exponentialLambda}
-                    onChange={(e) => set("exponentialLambda", +e.target.value)}
-                  />
-                </div>
-              )}
-
               <div className="form-row">
                 <div className="form-group">
-                  <label>Error Rate (0–100 %)</label>
+                  <label>{t.chaosErrorRateField}</label>
                   <input
                     type="number"
                     min={0}
                     max={100}
                     value={Math.round(form.errorRate * 100)}
                     onChange={(e) =>
-                      set(
-                        "errorRate",
-                        Math.min(100, Math.max(0, +e.target.value)) / 100,
-                      )
+                      set("errorRate", Math.min(100, Math.max(0, +e.target.value)) / 100)
                     }
                     className={errors.errorRate ? "input-error" : ""}
                   />
-                  {errors.errorRate && (
-                    <span className="field-error">{errors.errorRate}</span>
-                  )}
+                  {errors.errorRate && <span className="field-error">{errors.errorRate}</span>}
                 </div>
                 <div className="form-group">
-                  <label>Error Status Code</label>
+                  <label>{t.chaosErrorCode}</label>
                   <input
                     type="number"
                     value={form.errorStatusCode}
@@ -419,51 +311,13 @@ export function ChaosRules({ rules, onRefresh }: Props) {
                     className={errors.errorStatusCode ? "input-error" : ""}
                   />
                   {errors.errorStatusCode && (
-                    <span className="field-error">
-                      {errors.errorStatusCode}
-                    </span>
+                    <span className="field-error">{errors.errorStatusCode}</span>
                   )}
-                </div>
-                <div className="form-group">
-                  <label>Error Distribution</label>
-                  <select
-                    value={form.errorDistribution}
-                    onChange={(e) =>
-                      set("errorDistribution", e.target.value as any)
-                    }
-                  >
-                    <option value="Random">Random</option>
-                    <option value="Poisson">Poisson</option>
-                  </select>
                 </div>
               </div>
 
-              {form.errorDistribution === "Poisson" && (
-                <div className="form-row">
-                  <div className="form-group">
-                    <label>Poisson Lambda (0.01–0.5)</label>
-                    <input
-                      type="number"
-                      step={0.01}
-                      value={form.poissonLambda}
-                      onChange={(e) => set("poissonLambda", +e.target.value)}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Burst Duration (ms)</label>
-                    <input
-                      type="number"
-                      value={form.poissonBurstDurationMs}
-                      onChange={(e) =>
-                        set("poissonBurstDurationMs", +e.target.value)
-                      }
-                    />
-                  </div>
-                </div>
-              )}
-
               <div className="form-group">
-                <label>Error Response Body</label>
+                <label>{t.chaosErrorBody}</label>
                 <input
                   value={form.errorBody}
                   onChange={(e) => set("errorBody", e.target.value)}
@@ -473,34 +327,21 @@ export function ChaosRules({ rules, onRefresh }: Props) {
 
               <div className="form-group">
                 <label
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    cursor: "pointer",
-                  }}
+                  style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}
                 >
                   <button
                     className={`toggle ${form.isEnabled ? "on" : ""}`}
                     onClick={() => set("isEnabled", !form.isEnabled)}
                   />
-                  {form.isEnabled ? "Enabled" : "Disabled"}
+                  {form.isEnabled ? t.enabled : t.disabled}
                 </label>
               </div>
             </div>
 
             <div className="modal-footer">
-              <button onClick={closeModal}>Cancel</button>
-              <button
-                className="primary"
-                onClick={handleSave}
-                disabled={saving}
-              >
-                {saving
-                  ? "Saving…"
-                  : mode === "edit"
-                    ? "Save Changes"
-                    : "Add Rule"}
+              <button onClick={closeModal}>{t.cancel}</button>
+              <button className="primary" onClick={handleSave} disabled={saving}>
+                {saving ? t.saving : mode === "edit" ? t.saveChanges : t.chaosAddBtn}
               </button>
             </div>
           </div>

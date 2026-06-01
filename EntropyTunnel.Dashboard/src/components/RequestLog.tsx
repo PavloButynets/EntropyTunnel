@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { RequestLogEntry } from "../types";
 import type { ReplayPayload, ReplayResponse } from "../api/client";
 import * as api from "../api/client";
+import { useT } from "../i18n";
 
 interface Header {
   key: string;
@@ -103,6 +104,7 @@ interface Props {
 }
 
 export function RequestLog({ entries, onRefresh }: Props) {
+  const { t } = useT();
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const [replayEntry, setReplayEntry] = useState<RequestLogEntry | null>(null);
@@ -122,7 +124,7 @@ export function RequestLog({ entries, onRefresh }: Props) {
   }
 
   function openReplay(entry: RequestLogEntry, ev: React.MouseEvent) {
-    ev.stopPropagation(); // don't toggle expand when clicking Replay
+    ev.stopPropagation();
     setReplayEntry(entry);
     setReplay(makeDefaultReplay(entry));
     setResponse(null);
@@ -190,7 +192,7 @@ export function RequestLog({ entries, onRefresh }: Props) {
       const res = await api.replayRequest(payload);
       setResponse(res);
     } catch (err) {
-      setReplayError(err instanceof Error ? err.message : "Request failed");
+      setReplayError(err instanceof Error ? err.message : t.logRequestFailed);
     } finally {
       setReplaying(false);
     }
@@ -207,31 +209,27 @@ export function RequestLog({ entries, onRefresh }: Props) {
         }}
       >
         <p style={{ color: "var(--text-muted)", fontSize: 13 }}>
-          Live request inspector — last 1 000 requests, newest first. Click a
-          row to see full headers &amp; body.
+          {t.logDesc}
         </p>
         <button onClick={handleClear} disabled={entries.length === 0}>
-          Clear Log
+          {t.logClear}
         </button>
       </div>
 
       {entries.length === 0 ? (
-        <div className="empty-state">
-          No requests yet — send some traffic through the tunnel.
-        </div>
+        <div className="empty-state">{t.logEmpty}</div>
       ) : (
         <div style={{ overflowX: "auto", width: "100%" }}>
         <table style={{ minWidth: 700 }}>
           <thead>
             <tr>
               <th style={{ width: 16 }}></th>
-              {/* expand toggle */}
-              <th>Time</th>
-              <th>Method</th>
-              <th>Path</th>
-              <th>Status</th>
-              <th>Duration</th>
-              <th>Annotations</th>
+              <th>{t.logTime}</th>
+              <th>{t.method}</th>
+              <th>{t.logPath}</th>
+              <th>{t.logStatus}</th>
+              <th>{t.logDuration}</th>
+              <th>{t.logAnnotations}</th>
               <th></th>
             </tr>
           </thead>
@@ -314,7 +312,7 @@ export function RequestLog({ entries, onRefresh }: Props) {
                         {e.appliedChaosRule && (
                           <span
                             className="badge badge-red"
-                            title="Chaos rule applied"
+                            title={t.logChaosApplied}
                           >
                             ⚡ {e.appliedChaosRule}
                           </span>
@@ -322,7 +320,7 @@ export function RequestLog({ entries, onRefresh }: Props) {
                         {e.appliedMockRule && (
                           <span
                             className="badge badge-purple"
-                            title="Mock rule applied"
+                            title={t.logMockApplied}
                           >
                             🎭 {e.appliedMockRule}
                           </span>
@@ -332,9 +330,9 @@ export function RequestLog({ entries, onRefresh }: Props) {
                     <td>
                       <button
                         onClick={(ev) => openReplay(e, ev)}
-                        title="Replay this request with edits"
+                        title={t.logReplayTitleAttr}
                       >
-                        ↩ Replay
+                        {t.logReplayBtn}
                       </button>
                     </td>
                   </tr>
@@ -352,7 +350,6 @@ export function RequestLog({ entries, onRefresh }: Props) {
                           padding: "12px 20px",
                         }}
                       >
-                        {/* Headers grid */}
                         <div
                           style={{
                             display: "grid",
@@ -372,7 +369,7 @@ export function RequestLog({ entries, onRefresh }: Props) {
                                 marginBottom: 8,
                               }}
                             >
-                              Request Headers
+                              {t.logReqHeaders}
                               {e.requestHeaders && (
                                 <span
                                   style={{ fontWeight: 400, marginLeft: 6 }}
@@ -384,7 +381,7 @@ export function RequestLog({ entries, onRefresh }: Props) {
                             <HeaderTable
                               headers={e.requestHeaders}
                               keyColor="var(--accent-h)"
-                              emptyLabel="No headers captured"
+                              emptyLabel={t.logNoHeaders}
                             />
                           </div>
 
@@ -399,7 +396,7 @@ export function RequestLog({ entries, onRefresh }: Props) {
                                 marginBottom: 8,
                               }}
                             >
-                              Response Headers
+                              {t.logRespHeaders}
                               {e.responseHeaders && (
                                 <span
                                   style={{ fontWeight: 400, marginLeft: 6 }}
@@ -411,7 +408,7 @@ export function RequestLog({ entries, onRefresh }: Props) {
                             <HeaderTable
                               headers={e.responseHeaders}
                               keyColor="var(--green)"
-                              emptyLabel="No headers captured"
+                              emptyLabel={t.logNoHeaders}
                             />
                           </div>
                         </div>
@@ -428,14 +425,14 @@ export function RequestLog({ entries, onRefresh }: Props) {
                                 marginBottom: 6,
                               }}
                             >
-                              Request Body
+                              {t.logReqBody}
                               {e.requestContentLength != null && (
                                 <span
                                   style={{ fontWeight: 400, marginLeft: 6 }}
                                 >
                                   {e.requestContentLength > 2048
-                                    ? `(first 2 KB of ${e.requestContentLength} bytes)`
-                                    : `(${e.requestContentLength} bytes)`}
+                                    ? t.logFirst2KB(e.requestContentLength)
+                                    : t.logNBytes(e.requestContentLength)}
                                 </span>
                               )}
                             </div>
@@ -479,9 +476,9 @@ export function RequestLog({ entries, onRefresh }: Props) {
           <div className="modal" style={{ width: 700 }}>
             <div className="modal-header">
               <div>
-                <h3>Replay Request</h3>
+                <h3>{t.logReplayTitle}</h3>
                 <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                  Original: {replayEntry.method} {replayEntry.path} →{" "}
+                  {t.logOriginal} {replayEntry.method} {replayEntry.path} →{" "}
                   {replayEntry.statusCode}
                 </span>
               </div>
@@ -493,7 +490,7 @@ export function RequestLog({ entries, onRefresh }: Props) {
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div className="form-row">
                 <div className="form-group" style={{ flex: "0 0 120px" }}>
-                  <label>Method</label>
+                  <label>{t.method}</label>
                   <select
                     value={replay.method}
                     onChange={(e) => setField("method", e.target.value)}
@@ -514,7 +511,7 @@ export function RequestLog({ entries, onRefresh }: Props) {
                   </select>
                 </div>
                 <div className="form-group" style={{ flex: 1 }}>
-                  <label>Path</label>
+                  <label>{t.logPath}</label>
                   <input
                     value={replay.path}
                     onChange={(e) => setField("path", e.target.value)}
@@ -533,17 +530,17 @@ export function RequestLog({ entries, onRefresh }: Props) {
                     marginBottom: 6,
                   }}
                 >
-                  <label style={{ margin: 0 }}>Request Headers</label>
+                  <label style={{ margin: 0 }}>{t.logReqHeaders}</label>
                   <button
                     onClick={addHeader}
                     style={{ padding: "2px 10px", fontSize: 12 }}
                   >
-                    + Add
+                    {t.logAddHeader}
                   </button>
                 </div>
                 {replay.headers.length === 0 ? (
                   <span style={{ color: "var(--text-muted)", fontSize: 12 }}>
-                    No headers
+                    {t.logNoHeadersRow}
                   </span>
                 ) : (
                   replay.headers.map((h, i) => (
@@ -579,7 +576,7 @@ export function RequestLog({ entries, onRefresh }: Props) {
 
               {METHODS_WITH_BODY.has(replay.method) && (
                 <div className="form-group">
-                  <label>Request Body</label>
+                  <label>{t.logReqBody}</label>
                   <textarea
                     value={replay.body}
                     onChange={(e) => setField("body", e.target.value)}
@@ -589,7 +586,6 @@ export function RequestLog({ entries, onRefresh }: Props) {
                 </div>
               )}
 
-              {/* API-level replay error */}
               {replayError && (
                 <div className="api-error">
                   <span className="api-error-icon">✕</span>
@@ -627,8 +623,9 @@ export function RequestLog({ entries, onRefresh }: Props) {
                       }}
                       onClick={() => setShowRespHeaders((v) => !v)}
                     >
-                      {showRespHeaders ? "Hide" : "Show"} Response Headers (
-                      {Object.keys(response.headers).length})
+                      {showRespHeaders
+                        ? t.logHideRespHeaders(Object.keys(response.headers).length)
+                        : t.logShowRespHeaders(Object.keys(response.headers).length)}
                     </button>
                   </div>
 
@@ -666,7 +663,7 @@ export function RequestLog({ entries, onRefresh }: Props) {
                   )}
 
                   <div>
-                    <label style={{ marginBottom: 4 }}>Response Body</label>
+                    <label style={{ marginBottom: 4 }}>{t.logRespBody}</label>
                     <pre
                       style={{
                         background: "var(--surface2)",
@@ -686,7 +683,7 @@ export function RequestLog({ entries, onRefresh }: Props) {
                     >
                       {tryPrettyJson(response.body) || (
                         <span style={{ color: "var(--text-muted)" }}>
-                          (empty)
+                          {t.logEmptyBody}
                         </span>
                       )}
                     </pre>
@@ -696,14 +693,14 @@ export function RequestLog({ entries, onRefresh }: Props) {
             </div>
 
             <div className="modal-footer">
-              <button onClick={closeReplay}>Close</button>
+              <button onClick={closeReplay}>{t.logClose}</button>
               <button
                 className="primary"
                 onClick={executeReplay}
                 disabled={replaying}
                 style={{ minWidth: 120 }}
               >
-                {replaying ? "⏳ Sending…" : "↩ Send Request"}
+                {replaying ? t.logSending : t.logSendRequest}
               </button>
             </div>
           </div>

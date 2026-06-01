@@ -1,36 +1,39 @@
 import type { AgentInfo } from "../types";
+import { useT } from "../i18n";
 import styles from "./AccountOverview.module.css";
 
 interface Props {
   agents: AgentInfo[];
 }
 
-function formatRelative(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  return `${Math.floor(mins / 60)}h ago`;
-}
-
 export function AccountOverview({ agents }: Props) {
+  const { t } = useT();
+
+  function formatRelative(iso: string): string {
+    const diff = Date.now() - new Date(iso).getTime();
+    const mins = Math.floor(diff / 60_000);
+    if (mins < 1) return t.overviewJustNow;
+    if (mins < 60) return t.overviewMinAgo(mins);
+    return t.overviewHourAgo(Math.floor(mins / 60));
+  }
+
   return (
     <div className={styles.page}>
       <header className={styles.header}>
         <span className={styles.headerIcon}>⚡</span>
         <div>
           <h1 className={styles.title}>EntropyTunnel</h1>
-          <p className={styles.subtitle}>Your active tunnels</p>
+          <p className={styles.subtitle}>{t.overviewSubtitle}</p>
         </div>
       </header>
 
       {agents.length === 0 ? (
         <div className={styles.empty}>
-          <p>No agents connected.</p>
+          <p>{t.overviewNoAgents}</p>
           <p className={styles.emptyHint}>
-            Start an agent with{" "}
+            {t.overviewHint}{" "}
             <code className={styles.code}>dotnet run --project EntropyTunnel.Client</code>{" "}
-            and it will appear here.
+            {t.overviewHintEnd}
           </p>
         </div>
       ) : (
@@ -54,7 +57,7 @@ export function AccountOverview({ agents }: Props) {
               )}
               {agent.connectedAt && (
                 <div className={styles.since}>
-                  Connected {formatRelative(agent.connectedAt)}
+                  {t.overviewConnected} {formatRelative(agent.connectedAt)}
                 </div>
               )}
               <div className={styles.arrow}>→</div>

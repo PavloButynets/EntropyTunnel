@@ -22,13 +22,16 @@ import type {
   RoutingRule,
   Tab,
 } from "./types";
+import { useT } from "./i18n";
 import styles from "./App.module.css";
 
-const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
-  { id: "chaos", label: "Chaos Rules", icon: Zap },
-  { id: "mocks", label: "Mocks", icon: Drama },
-  { id: "routing", label: "Routing", icon: GitFork },
-  { id: "log", label: "Request Log", icon: ClipboardList },
+type TabDef = { id: Tab; labelKey: "tabChaos" | "tabMocks" | "tabRouting" | "tabLog"; icon: LucideIcon };
+
+const TAB_DEFS: TabDef[] = [
+  { id: "chaos", labelKey: "tabChaos", icon: Zap },
+  { id: "mocks", labelKey: "tabMocks", icon: Drama },
+  { id: "routing", labelKey: "tabRouting", icon: GitFork },
+  { id: "log", labelKey: "tabLog", icon: ClipboardList },
 ];
 
 const routeClientId: string | null = (() => {
@@ -46,6 +49,7 @@ if (routeClientId) {
 type AuthState = "checking" | "unauthenticated" | "authenticated";
 
 export default function App() {
+  const { t } = useT();
   const [authState, setAuthState] = useState<AuthState>("checking");
 
   const [agents, setAgents] = useState<AgentInfo[]>([]);
@@ -200,16 +204,16 @@ export default function App() {
       />
 
       <nav className={styles.tabs}>
-        {TABS.map((t) => {
-          const Icon = t.icon;
+        {TAB_DEFS.map((def) => {
+          const Icon = def.icon;
           return (
             <button
-              key={t.id}
-              className={`${styles.tab} ${tab === t.id ? styles.active : ""}`}
-              onClick={() => setTab(t.id)}
+              key={def.id}
+              className={`${styles.tab} ${tab === def.id ? styles.active : ""}`}
+              onClick={() => setTab(def.id)}
             >
               <Icon size={16} strokeWidth={1.5} />
-              <span>{t.label}</span>
+              <span>{t[def.labelKey]}</span>
             </button>
           );
         })}

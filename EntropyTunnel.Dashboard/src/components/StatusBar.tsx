@@ -1,5 +1,7 @@
-import { Zap } from "lucide-react";
+import { Zap, Sun, Moon } from "lucide-react";
 import type { AgentInfo } from "../types";
+import { useT } from "../i18n";
+import { useTheme } from "../theme";
 import styles from "./StatusBar.module.css";
 
 interface Props {
@@ -15,6 +17,8 @@ export function StatusBar({
   selectedClientId,
   onSelectAgent,
 }: Props) {
+  const { lang, t, toggle: toggleLang } = useT();
+  const { theme, toggle: toggleTheme } = useTheme();
   const connected = selectedAgent?.isConnected ?? false;
   const showSwitcher = agents.length > 1;
 
@@ -25,7 +29,7 @@ export function StatusBar({
           <Zap />
         </span>
         <span className={styles.logoText}>EntropyTunnel</span>
-        <span className={styles.logoSub}>Inspector</span>
+        <span className={styles.logoSub}>{t.statusInspector}</span>
       </div>
 
       <div className={styles.center}>
@@ -42,10 +46,9 @@ export function StatusBar({
       </div>
 
       <div className={styles.right}>
-        {/* Agent switcher — only shown when multiple agents are registered */}
         {showSwitcher && (
           <div className={styles.agentSwitcher}>
-            <span className={styles.agentLabel}>Agent:</span>
+            <span className={styles.agentLabel}>{t.statusAgent}</span>
             <select
               className={styles.agentSelect}
               value={selectedClientId}
@@ -61,11 +64,27 @@ export function StatusBar({
           </div>
         )}
 
+        <button
+          onClick={toggleTheme}
+          className={styles.iconToggle}
+          title={theme === "dark" ? "Light mode" : "Dark mode"}
+        >
+          {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
+        </button>
+
+        <button
+          onClick={toggleLang}
+          className={styles.langToggle}
+          title={lang === "en" ? "Switch to Ukrainian" : "Перемкнути на англійську"}
+        >
+          {lang === "en" ? "УК" : "EN"}
+        </button>
+
         <span
           className={`${styles.dot} ${connected ? styles.connected : styles.disconnected}`}
         />
         <span className={styles.statusText}>
-          {connected ? "Connected" : "Disconnected"}
+          {connected ? t.statusConnected : t.statusDisconnected}
         </span>
       </div>
     </header>

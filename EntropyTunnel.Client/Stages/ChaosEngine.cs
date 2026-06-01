@@ -1,26 +1,19 @@
 using System.Text;
-using System.Collections.Concurrent;
 using EntropyTunnel.Client.State;
 using EntropyTunnel.Client.Pipeline;
-using EntropyTunnel.Core;
 using EntropyTunnel.Core.Models;
 
 namespace EntropyTunnel.Client.Stages;
 
 /// <summary>
-/// Stage 2 - Chaos Engine.
-/// Applies per-path latency injection and probabilistic error injection.
-/// Supports multiple distribution types for realistic failure simulation.
+/// Stage 2 — Chaos Engine.
+/// Injects latency (uniform ± jitter) and probabilistic errors for matching requests.
 /// If an error is injected IsHandled is set, skipping the real local call.
-/// If only latency is injected, next() is still called (the request proceeds normally but slowly).
 /// </summary>
 public sealed class ChaosEngine : IPipelineStage
 {
     private readonly RuleStore _store;
     private readonly ILogger<ChaosEngine> _logger;
-
-    // Poisson error state per rule ID
-    private readonly ConcurrentDictionary<Guid, ErrorInjectionState> _errorStates = new();
 
     public ChaosEngine(RuleStore store, ILogger<ChaosEngine> logger)
     {
@@ -41,20 +34,22 @@ public sealed class ChaosEngine : IPipelineStage
 
         context.AppliedChaosRule = rule.Name;
 
-        // 1. Latency injection using distribution sampler
-        int delayMs = DistributionSampler.SampleLatency(rule);
-        if (delayMs > 0)
+        // Latency: uniform random in [latencyMs - jitterMs, latencyMs + jitterMs]
+        if (rule.LatencyMs > 0)
         {
-            _logger.LogInformation("[CHAOS] '{Rule}': injecting {Delay}ms latency on {Path}",
+            int jitter = rule.JitterMs > 0
+                ? Random.Shared.Next(-rule.JitterMs, rule.JitterMs + 1)
+                : 0;
+            int delayMs = Math.Max(0, rule.LatencyMs + jitter);
+
+            _logger.LogInformation("[CHAOS] '{Rule}': injecting {Delay}ms on {Path}",
                 rule.Name, delayMs, context.Path);
 
             await Task.Delay(delayMs, ct);
         }
 
-        // 2. Error injection using distribution sampler
-        var errorState = _errorStates.GetOrAdd(rule.Id, _ => new ErrorInjectionState());
-
-        if (DistributionSampler.ShouldInjectError(rule, errorState))
+        // Error: independent per-request probability
+        if (rule.ErrorRate > 0 && Random.Shared.NextDouble() < rule.ErrorRate)
         {
             _logger.LogWarning("[CHAOS] '{Rule}': injecting {Code} on {Path} (rate {Rate:P0})",
                 rule.Name, rule.ErrorStatusCode, context.Path, rule.ErrorRate);
@@ -63,7 +58,7 @@ public sealed class ChaosEngine : IPipelineStage
             context.ContentType = "text/plain";
             context.ResponseStream = new MemoryStream(Encoding.UTF8.GetBytes(rule.ErrorBody));
             context.IsHandled = true;
-            return; // Do NOT call next()
+            return;
         }
 
         await next();
